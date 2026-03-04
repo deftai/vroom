@@ -45,16 +45,16 @@ graph TB
 VROOM supports three modes, switchable at runtime via the MODE message:
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'primaryTextColor': '#000', 'lineColor': '#333'}}}%%
+%%{init: {'theme': 'base', 'themeVariables': {'primaryTextColor': '#000000', 'secondaryTextColor': '#000000', 'tertiaryTextColor': '#000000', 'noteTextColor': '#000000', 'primaryColor': '#909090', 'secondaryColor': '#808080', 'tertiaryColor': '#707070', 'lineColor': '#404040', 'stateLabelColor': '#000000', 'compositeBackground': '#a0a0a0'}}}%%
 stateDiagram-v2
     [*] --> View: Connection established
 
-    View --> Interact: MODE {mode: "interact"}
-    View --> Voice: MODE {mode: "voice"}
-    Interact --> View: MODE {mode: "view"}
-    Interact --> Voice: MODE {mode: "voice"}
-    Voice --> View: MODE {mode: "view"}
-    Voice --> Interact: MODE {mode: "interact"}
+    View --> Interact: MODE(interact)
+    View --> Voice: MODE(voice)
+    Interact --> View: MODE(view)
+    Interact --> Voice: MODE(voice)
+    Voice --> View: MODE(view)
+    Voice --> Interact: MODE(interact)
 
     state View {
         [*] --> v1: Video + Audio only
@@ -70,9 +70,9 @@ stateDiagram-v2
 
     state Voice {
         [*] --> c1: High-level commands
-        c1: "Click the login button"
-        c1: "Scroll down"
-        c1: "Type my email"
+        c1: Click the login button
+        c1: Scroll down
+        c1: Type my email
     }
 ```
 
