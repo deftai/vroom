@@ -130,7 +130,9 @@ sequenceDiagram
 
 ### Channel: `omux/control` — Reliable, Ordered
 
-Session control, mode switching, clipboard, navigation, high-level commands, and agent state. JSON payloads for readability and extensibility.
+Session control, mode switching, clipboard, navigation, high-level commands, and agent state.
+
+**Control Encoding:** CBOR preferred, JSON accepted. The encoding is negotiated during VROOM_HANDSHAKE via the `control_encoding` field. CBOR is the default; JSON MAY be used for development/debugging. This is consistent with [VROOM-Terminal](./VROOM-Terminal.md) and enables a shared `vroom-protocol` codec library across both protocols.
 
 #### Message Types
 
@@ -160,17 +162,17 @@ graph TD
 
 | Type | Name | Direction | Payload | Description |
 |------|------|-----------|---------|-------------|
-| `0x80` | VROOM_HANDSHAKE | Both | JSON | VROOM-level handshake (after OpenMux HELLO/WELCOME) |
-| `0x81` | MODE | C→S | JSON | Switch interaction mode |
-| `0x82` | RESIZE | C→S | JSON | Client viewport changed |
-| `0x83` | CLIPBOARD | Both | JSON | Clipboard get/set |
-| `0x84` | NAVIGATE | C→S | JSON | Navigate agent's browser to URL |
-| `0x85` | COMMAND | C→S | JSON | High-level voice/chat command |
-| `0x86` | PASTE | C→S | JSON | Paste text at current focus |
-| `0x90` | CURSOR | S→C | JSON | Agent's cursor state (position, shape) |
-| `0x91` | STATE | S→C | JSON | Agent state update |
-| `0x92` | NOTIFICATION | S→C | JSON | Toast/alert from agent |
-| `0x93` | CHAT | Both | JSON | Text chat message |
+| `0x80` | VROOM_HANDSHAKE | Both | CBOR/JSON | VROOM-level handshake (after OpenMux HELLO/WELCOME) |
+| `0x81` | MODE | C→S | CBOR/JSON | Switch interaction mode |
+| `0x82` | RESIZE | C→S | CBOR/JSON | Client viewport changed |
+| `0x83` | CLIPBOARD | Both | CBOR/JSON | Clipboard get/set |
+| `0x84` | NAVIGATE | C→S | CBOR/JSON | Navigate agent's browser to URL |
+| `0x85` | COMMAND | C→S | CBOR/JSON | High-level voice/chat command |
+| `0x86` | PASTE | C→S | CBOR/JSON | Paste text at current focus |
+| `0x90` | CURSOR | S→C | CBOR/JSON | Agent's cursor state (position, shape) |
+| `0x91` | STATE | S→C | CBOR/JSON | Agent state update |
+| `0x92` | NOTIFICATION | S→C | CBOR/JSON | Toast/alert from agent |
+| `0x93` | CHAT | Both | CBOR/JSON | Text chat message |
 
 ---
 
@@ -183,6 +185,7 @@ Exchanged immediately after OpenMux HELLO/WELCOME. Establishes VROOM-specific ca
 ```json
 {
   "version": "0.1.0",
+  "control_encoding": ["cbor", "json"],
   "capabilities": ["pointer", "keyboard", "touch", "clipboard", "command"],
   "viewport": {
     "width": 1024,
@@ -202,6 +205,7 @@ Exchanged immediately after OpenMux HELLO/WELCOME. Establishes VROOM-specific ca
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `version` | string | MUST | VROOM protocol version (semver) |
+| `control_encoding` | string[] | SHOULD | Supported encodings in preference order. Values: `"cbor"`, `"json"`. Default: `["cbor"]` |
 | `capabilities` | string[] | MUST | Input capabilities the client supports |
 | `viewport` | Viewport | MUST | Client's display dimensions |
 | `mode` | string | SHOULD | Initial mode. Default: `"view"` |
@@ -212,6 +216,7 @@ Exchanged immediately after OpenMux HELLO/WELCOME. Establishes VROOM-specific ca
 ```json
 {
   "version": "0.1.0",
+  "control_encoding": "cbor",
   "capabilities": ["pointer", "keyboard", "clipboard", "command", "cursor"],
   "viewport": {
     "width": 1024,
@@ -228,6 +233,7 @@ Exchanged immediately after OpenMux HELLO/WELCOME. Establishes VROOM-specific ca
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `version` | string | MUST | Server's VROOM version |
+| `control_encoding` | string | MUST | Selected encoding for all subsequent control messages. The server picks the highest-preference encoding it supports from the client's list. |
 | `capabilities` | string[] | MUST | Capabilities the server supports |
 | `viewport` | Viewport | MUST | Agent's render viewport |
 | `agent` | object | MAY | Agent identity and state |
@@ -878,7 +884,7 @@ graph TB
     J["JetKVM<br/>Binary / DataChannel<br/>USB HID scancodes"]
     SP["SocketPipe<br/>Binary frames / WebSocket<br/>Terminal I/O"]
 
-    V["VROOM<br/>Binary + JSON / DataChannel<br/>DOM key/code"]
+    V["VROOM<br/>Binary + CBOR/JSON / DataChannel<br/>DOM key/code"]
 
     N -->|"Named event types<br/>Debuggable control channel"| V
     S -->|"Compact hot-path<br/>Relative mouse support"| V

@@ -70,13 +70,37 @@ Simple binary struct (no CBOR):
 
 Complex messages (PTY_REQUEST, capabilities, auth, etc.) use **CBOR** (preferred) or JSON for development.
 
+**Control Encoding:** The HELLO message is always sent as JSON (for bootstrapping). The client includes a `control_encoding` field listing supported encodings in preference order. The server's HELLO response selects one, and all subsequent messages use that encoding. This negotiation mechanism is shared with [VROOM-Graphical](./VROOM-Graphical.md).
+
+HELLO example:
+
+```json
+{
+  "protocol": "vroom-terminal",
+  "version": 1,
+  "control_encoding": ["cbor", "json"]
+}
+```
+
+Server response:
+
+```json
+{
+  "protocol": "vroom-terminal",
+  "version": 1,
+  "control_encoding": "cbor"
+}
+```
+
+After HELLO, all subsequent control messages on `vroom.terminal.control` use the selected encoding.
+
 ---
 
 ## 2. Exact Capability Negotiation Schema
 
 Capability exchange occurs via CAPABILITY_OFFER + CAPABILITY_SELECT.
 
-Schema (shown as JSON for readability — transmitted as CBOR):
+Schema (shown as JSON for readability — transmitted in the negotiated `control_encoding`):
 
 ```json
 {
