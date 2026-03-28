@@ -10,7 +10,7 @@ Version: 0.1.0-draft | Status: Draft | Date: 2026-02-14
 
 ## What is VROOM?
 
-VROOM is a WebRTC-native protocol and runtime for interactive sessions with AI agents. You see what the agent sees (browser, terminal, desktop), hear it speak, talk to it by voice or text, and take over its screen with your mouse and keyboard — all in real-time over a single WebRTC connection.
+VROOM is a protocol and runtime for interactive sessions with AI agents. You see what the agent sees (browser, terminal, desktop), hear it speak, talk to it by voice or text, and take over its screen with your mouse and keyboard — all in real-time over a single WebRTC connection.
 
 VROOM is an application protocol built on [OpenMux](https://github.com/visionik/socketpipe/tree/openmux), a transport-agnostic channel multiplexing standard.
 
