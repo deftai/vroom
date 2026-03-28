@@ -2,8 +2,6 @@
 
 **Virtual Remoting Over OpenMux**
 
-*It's like having a Zoom call with your coding agent.*
-
 Version: 0.2.0-draft | Status: Draft | Date: 2026-03-28
 
 ---
