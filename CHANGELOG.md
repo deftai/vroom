@@ -24,10 +24,10 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 ### Added
 - Initial VROOM protocol spec with full message definitions
 - Three interaction modes: View, Interact, Voice
-- OpenMux channel definitions: `omux/control`, `omux/pointer`, `omux/button`
+- xumux channel definitions: `omux/control`, `omux/pointer`, `omux/button`
 - Binary-packed pointer/button channels for low-latency input
 - VROOM_HANDSHAKE, MODE, RESIZE, CLIPBOARD, NAVIGATE, COMMAND, PASTE, CURSOR, STATE, NOTIFICATION, CHAT message types
-- Connection flow with WebRTC signaling and OpenMux handshake
+- Connection flow with WebRTC signaling and xumux handshake
 - WebSocket fallback mode
 - Coordinate system specification
 - Mermaid diagrams with grayscale theme throughout

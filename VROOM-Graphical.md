@@ -1,6 +1,6 @@
 # VROOM-Graphical
 
-**Virtual Remoting Over OpenMux — Graphical Protocol**
+**Virtual Remoting Over Open Methods — Graphical Protocol**
 
 *It's like having a Zoom call with your coding agent.*
 
@@ -13,7 +13,7 @@ Version: 0.1.0-draft | Status: Draft | Date: 2026-02-14
 
 VROOM-Graphical is the graphical/desktop access protocol within the VROOM family. It provides interactive sessions with AI agents where you see what the agent sees (browser, desktop), hear it speak, talk to it by voice or text, and take over its screen with your mouse and keyboard — all in real-time over a single WebRTC connection.
 
-VROOM-Graphical is an application protocol built on [OpenMux](https://github.com/visionik/socketpipe/tree/openmux), a transport-agnostic channel multiplexing standard. Both VROOM-Graphical and [VROOM-Terminal](./VROOM-Terminal.md) can run over the same OpenMux connection.
+VROOM-Graphical is an application protocol built on [xumux](https://xumux.org), a transport-agnostic channel multiplexing standard. Both VROOM-Graphical and [VROOM-Terminal](./VROOM-Terminal.md) can run over the same xumux connection.
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'primaryTextColor': '#000000', 'secondaryTextColor': '#000000', 'tertiaryTextColor': '#000000', 'noteTextColor': '#000000', 'primaryColor': '#909090', 'secondaryColor': '#808080', 'tertiaryColor': '#707070', 'lineColor': '#404040'}}}%%
@@ -26,7 +26,7 @@ graph TB
             AU["🎤 Audio Track (Opus)<br/>Bidirectional voice"]
         end
 
-        subgraph Data["OpenMux DataChannels"]
+        subgraph Data["xumux DataChannels"]
             DC1["omux/control<br/>reliable · ordered"]
             DC2["omux/pointer<br/>unreliable · unordered"]
             DC3["omux/button<br/>reliable · ordered"]
@@ -85,9 +85,9 @@ stateDiagram-v2
 
 ---
 
-## OpenMux Channels
+## xumux Channels
 
-VROOM defines three OpenMux channels. The `pointer` and `button` channels are opened lazily — only when the user enters Interact mode.
+VROOM defines three xumux channels. The `pointer` and `button` channels are opened lazily — only when the user enters Interact mode.
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'primaryTextColor': '#000000', 'secondaryTextColor': '#000000', 'tertiaryTextColor': '#000000', 'noteTextColor': '#000000', 'primaryColor': '#909090', 'secondaryColor': '#808080', 'tertiaryColor': '#707070', 'lineColor': '#404040', 'actorLineColor': '#404040', 'signalColor': '#404040', 'actorBkg': '#808080', 'actorTextColor': '#000000', 'noteBkgColor': '#909090'}}}%%
@@ -95,7 +95,7 @@ sequenceDiagram
     participant C as Client
     participant S as Agent Server
 
-    Note over C,S: OpenMux HELLO/WELCOME<br/>Only "control" channel opened
+    Note over C,S: xumux HELLO/WELCOME<br/>Only "control" channel opened
 
     C->>S: [control] VROOM_HANDSHAKE
     S->>C: [control] VROOM_HANDSHAKE (response)
@@ -162,7 +162,7 @@ graph TD
 
 | Type | Name | Direction | Payload | Description |
 |------|------|-----------|---------|-------------|
-| `0x80` | VROOM_HANDSHAKE | Both | CBOR/JSON | VROOM-level handshake (after OpenMux HELLO/WELCOME) |
+| `0x80` | VROOM_HANDSHAKE | Both | CBOR/JSON | VROOM-level handshake (after xumux HELLO/WELCOME) |
 | `0x81` | MODE | C→S | CBOR/JSON | Switch interaction mode |
 | `0x82` | RESIZE | C→S | CBOR/JSON | Client viewport changed |
 | `0x83` | CLIPBOARD | Both | CBOR/JSON | Clipboard get/set |
@@ -178,7 +178,7 @@ graph TD
 
 #### VROOM_HANDSHAKE (0x80)
 
-Exchanged immediately after OpenMux HELLO/WELCOME. Establishes VROOM-specific capabilities.
+Exchanged immediately after xumux HELLO/WELCOME. Establishes VROOM-specific capabilities.
 
 **Client → Server:**
 
@@ -788,7 +788,7 @@ sequenceDiagram
     C-->>P: Audio track (Opus — user's mic)
     P-->>C: Audio track (Opus — agent's voice)
 
-    Note over C,A: 4. OpenMux handshake
+    Note over C,A: 4. xumux handshake
     C->>A: [omux/control] HELLO {version, channels: ["control"]}
     A->>C: [omux/control] WELCOME {channels: [{name: "control", id: 0}]}
 
@@ -856,7 +856,7 @@ graph TD
     subgraph "WebSocket Fallback"
         WS1["Video: JPEG frames on omux/video channel"]
         WS2["Audio: text-only (no voice)"]
-        WS3["Input: same OpenMux frames, multiplexed"]
+        WS3["Input: same xumux frames, multiplexed"]
     end
 
     F{WebRTC<br/>available?}
@@ -865,7 +865,7 @@ graph TD
 ```
 
 In WebSocket mode:
-- All OpenMux channels multiplex over one connection
+- All xumux channels multiplex over one connection
 - Video degrades to server-pushed JPEG frames on a dedicated `omux/video` channel
 - Audio falls back to text-only chat (CHAT messages)
 - All input messages use identical binary format
@@ -897,7 +897,7 @@ graph TB
 | **n.eko** | Named event types, JSON for control messages, debuggability |
 | **Selkies-GStreamer** | Compact binary for hot-path mouse events, relative mouse mode |
 | **JetKVM** | Separate channels per input type with independent reliability |
-| **SocketPipe** | Transport-agnostic binary framing → evolved into OpenMux |
+| **SocketPipe** | Transport-agnostic binary framing → evolved into xumux |
 
 ---
 

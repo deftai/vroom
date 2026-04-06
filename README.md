@@ -1,6 +1,6 @@
 # VROOM
 
-**Virtual Remoting Over OpenMux**
+**Virtual Remoting Over Open Methods**
 
 Version: 0.2.0-draft | Status: Draft | Date: 2026-03-28
 
@@ -8,9 +8,9 @@ Version: 0.2.0-draft | Status: Draft | Date: 2026-03-28
 
 ## What is VROOM?
 
-VROOM is a protocol family and runtime for interactive sessions with AI agents, built on [OpenMux](https://github.com/visionik/socketpipe/tree/openmux), a transport-agnostic channel multiplexing standard.
+VROOM is a protocol family and runtime for interactive sessions with AI agents, built on [xumux](https://xumux.org), a transport-agnostic channel multiplexing standard.
 
-VROOM comprises two companion protocols that can run over the same OpenMux connection:
+VROOM comprises two companion protocols that can run over the same xumux connection:
 
 | Protocol | Spec | Description |
 |----------|------|-------------|
@@ -33,13 +33,13 @@ graph TB
             T3["CBOR Control Plane"]
         end
     end
-    OM["OpenMux Transport Layer<br/>WebSocket · WebRTC · QUIC · TCP"] --> VROOM
+    OM["xumux Transport Layer<br/>WebSocket · WebRTC · QUIC · TCP"] --> VROOM
 ```
 
 ## Architecture
 
 - **Single `vroomd` daemon** supports both protocols simultaneously
-- **Shared OpenMux connection** — graphical and terminal channels coexist
+- **Shared xumux connection** — graphical and terminal channels coexist
 - **Thin gateways** (`vroom-to-ssh`, `ssh-to-vroom`) planned for adoption
 
 ## Reference Implementation

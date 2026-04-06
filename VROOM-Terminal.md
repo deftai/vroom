@@ -1,14 +1,14 @@
 # VROOM-Terminal
 
-**Virtual Remoting Over OpenMux — Terminal Protocol**
+**Virtual Remoting Over Open Methods — Terminal Protocol**
 
 *A modern, capability-aware terminal protocol for the age of Kitty, Sixel, and AI agents.*
 
 Official Name: VROOM-Terminal | Companion Protocol: [VROOM-Graphical](./VROOM-Graphical.md)
-Transport: [OpenMUX](https://github.com/visionik/socketpipe/tree/openmux) (WebSocket, WebRTC Data Channels, QUIC, TCP, etc.)
+Transport: [xumux](https://xumux.org) (WebSocket, WebRTC Data Channels, QUIC, TCP, etc.)
 Version: 0.2.0-draft | Status: Draft | Date: 2026-03-28
 
-Both protocols can run over the same OpenMUX connection.
+Both protocols can run over the same xumux connection.
 
 ---
 
@@ -145,7 +145,7 @@ The server replies with **CAPABILITY_SELECT**, containing the final intersection
 %%{init: {'theme': 'base', 'themeVariables': {'primaryTextColor': '#000000', 'secondaryTextColor': '#000000', 'tertiaryTextColor': '#000000', 'noteTextColor': '#000000', 'primaryColor': '#909090', 'secondaryColor': '#808080', 'tertiaryColor': '#707070', 'lineColor': '#404040', 'stateLabelColor': '#000000', 'compositeBackground': '#a0a0a0'}}}%%
 stateDiagram-v2
     [*] --> Disconnected
-    Disconnected --> ControlOpen: OpenMUX + control channel
+    Disconnected --> ControlOpen: xumux + control channel
     ControlOpen --> HelloExchange: HELLO
     HelloExchange --> CapabilityNegotiation: CAPABILITY_OFFER
     CapabilityNegotiation --> Authenticating: CAPABILITY_SELECT
@@ -158,14 +158,14 @@ stateDiagram-v2
 
     Authenticating --> Disconnected: Auth failure
     PTYRequest --> Disconnected: PTY denied
-    SessionActive --> PTYAllocated: Reconnect (OpenMUX)
+    SessionActive --> PTYAllocated: Reconnect (xumux)
 ```
 
 **Key points:**
 
 - **CapabilityNegotiation** is mandatory
 - `vroom.terminal.pty` channel is opened only after successful PTY_RESPONSE
-- Reconnection (via OpenMUX) can resume directly into SessionActive
+- Reconnection (via xumux) can resume directly into SessionActive
 
 ---
 
@@ -177,7 +177,7 @@ stateDiagram-v2
 | Kitty Keyboard Protocol | Native (Level 3 first-class) | Passthrough only | None |
 | Kitty Graphics / Sixel | Full transparent passthrough | Works | No |
 | Browser / WebRTC native | Excellent | Poor | No |
-| Reconnection / Roaming | Excellent (OpenMUX) | Poor | Excellent |
+| Reconnection / Roaming | Excellent (xumux) | Poor | Excellent |
 | Multiplexing (multiple shells) | Native & clean | Good (ControlMaster) | Single session |
 | Latency on lossy lines | Very good | Good | Excellent (predictive) |
 | Unified with Graphical | Yes (same connection) | No | No |
@@ -202,7 +202,7 @@ stateDiagram-v2
 ### Recommended Architecture
 
 - Single `vroomd` daemon supporting both VROOM-Graphical and VROOM-Terminal
-- Shared `vroom-protocol` and OpenMUX libraries
+- Shared `vroom-protocol` and xumux libraries
 - Build thin gateways (`vroom-to-ssh` and `ssh-to-vroom`) for easy adoption
 
 ### Development Phases (suggested)
