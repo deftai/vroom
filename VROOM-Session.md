@@ -100,8 +100,10 @@ Every image a host returns reports how it maps to its surface: `origin` in logic
 A client needs a lease to act on a surface. Watching needs none. This replaces the View and Interact modes of earlier drafts: viewing is having no lease, and interacting is holding one.
 
 ```json
-{ "request_id": "r1", "surface": "display:1", "ttl_ms": 30000 }
+{ "request_id": "r1", "surface": "display:1", "ttl_ms": 30000, "wait_ms": 30000 }
 ```
+
+`wait_ms` is how long to wait for a held lease before failing with `4604`. `0` fails at once with `4600`.
 
 - A host MUST refuse an action without a matching lease with `4600` (LEASE_REQUIRED).
 - A lease on a display covers the windows shown on it. A lease on a tab does not cover its display.
@@ -115,7 +117,7 @@ A client needs a lease to act on a surface. Watching needs none. This replaces t
 
 ## 5. Revisions and guards
 
-Each surface has a `rev`: a `uint64` that increases whenever the host observes a change. Every observation (frame, screenshot, snapshot) reports the `rev` it reflects.
+Each surface has a `rev`: a `uint64` that increases whenever the host observes a change. Every observation (frame, screenshot, snapshot) reports the `rev` it reflects. Two observations that differ MUST NOT report the same `rev`, even if the host learned of the change from the observation itself.
 
 An action MAY carry a **guard**, so that it is refused if what the actor saw has since changed:
 
@@ -141,13 +143,13 @@ An action's effects often arrive after it returns. Settling is a single definiti
 { "until": "settled", "quiet_ms": 150, "timeout_ms": 5000, "ignore": [{ "x": 0, "y": 0, "w": 200, "h": 24 }] }
 ```
 
-A surface is settled when nothing has changed for `quiet_ms`, outside the logical regions in `ignore`. Each type defines "changed":
+A surface is settled when nothing has changed for `quiet_ms`, outside the logical regions in `ignore`. A host that cannot honour `ignore` MUST refuse with `4605`. Each type defines "changed":
 
 | Type | Changed means |
 |---|---|
 | Graphical | The capture reported damage |
 | Structural | A tree event arrived |
-| Browsable | Layout or tree changed, or a document request is in flight |
+| Browsable | The DOM changed, or a document, script or stylesheet request is in flight |
 
 `wait` is accepted on any action and in WAIT. On timeout the action itself still counts as performed, and `settled.state` is `"timeout"`.
 

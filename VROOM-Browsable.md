@@ -116,7 +116,8 @@ Nodes are [Structural's Node](./VROOM-Structural.md#node), and the same closed l
 
 Rules for hosts:
 
-- IDs MUST be stable for as long as the same element exists in the page, and MUST NOT expose engine IDs.
+- IDs MUST stay the same while an element keeps its role and name, and MUST NOT expose engine IDs. A host MAY issue a new ID when either changes, and the old ID then returns `4602` or a guard refusal. It MUST NOT silently point at a different element.
+- Values of `password` fields MUST NOT appear in any node, whatever role the page gives them. Engines' accessibility trees commonly include them, so a host must remove them. If a host cannot determine whether a field is a password field, it MUST treat it as one. Such fields report `value: null` and `attrs.input_type: "password"`.
 - Frames and shadow roots are flattened into one tree, with `attrs.frame` and `attrs.shadow` marking where a node came from.
 - Cross-origin frames are included where the engine allows. A frame that cannot be read is a `web` node, so that the agent knows to use pixels.
 - A `canvas` or empty tree is reported as a `canvas` node, not as an empty result.
@@ -136,7 +137,7 @@ A host MUST report which rung it used. It MUST NOT fall down a rung because an a
 
 ## 6. Settling
 
-For Browsable, "changed" means that layout or the tree changed, or that a document or script request is in flight. Long-lived connections (WebSocket, streaming fetch, event streams) MUST NOT prevent settling. `wait.until` also accepts `"load"` and `"domcontentloaded"`.
+For Browsable, "changed" means that the DOM changed, or that a document, script or stylesheet request is in flight. CSS animations do not count. A host that cannot locate changes MUST refuse `ignore` with `4605`. Long-lived connections (WebSocket, streaming fetch, event streams) MUST NOT prevent settling. `wait.until` also accepts `"load"` and `"domcontentloaded"`.
 
 ---
 
