@@ -54,9 +54,9 @@ On `vroom.graphical.control`:
 
 | Type | Name | Dir | Body |
 |---|---|---|---|
-| `0x01` | STREAM_START | C→S | `surface`, `codecs` (preference order, as WebCodecs codec strings), `max_fps?`, `max_bitrate?`, `max_edge?`, `include_cursor?`, `path?` (`"datagram"` asks for §3.2's experimental path), `stats?` (`true` asks for STREAM_STATS) |
+| `0x01` | STREAM_START | C→S | `surface`, `codecs` (preference order, as WebCodecs codec strings), `max_fps?`, `max_bitrate?`, `max_edge?`, `include_cursor?`, `path?` (`"datagram"` asks for §3.2's experimental path), `stats?` (`true` asks for STREAM_STATS), `profile?` ([§9](#9-profiles)) |
 | `0x02` | STREAM_STOP | C→S | `surface` |
-| `0x03` | STREAM_STATE | S→C | `surface`, `codec`, `fps`, `bitrate`, `source`, `encoder`, `path` (`"reliable"` or `"datagram"`) |
+| `0x03` | STREAM_STATE | S→C | `surface`, `codec`, `fps`, `bitrate`, `source`, `encoder`, `path` (`"reliable"` or `"datagram"`), `profile` |
 | `0x04` | VIDEO_CONFIG | S→C | As in §3.2, with `surface`, on the datagram path, where the video channel could lose it |
 | `0x05` | STREAM_STATS | S→C | A performance record (§3.4), about once a second, only if STREAM_START asked |
 
@@ -189,13 +189,14 @@ On `vroom.graphical.agent`. The agent needs no video or decoder, and each answer
 - **`changed_since`** lists the regions changed since the given `rev`, so an agent can request crops and not spend tokens on whole screens.
 - **Actions:** `click`, `double_click`, `right_click`, `move`, `drag` (`to`), `scroll` (`dx`, `dy`), `key` (a chord such as `"Meta+S"`), and `text`.
 - **`at`** is `{x, y}` in logical units. Agents working from an image convert it using `origin` and `scale`.
+- **Formats:** `png` and `webp` without `quality` are lossless, and hosts MUST keep them lossless. Lossy formats cost text: in one test JPEG at quality 80 lost up to 18% of words to OCR, and lossy WebP up to 11%. Lossless WebP is much smaller on text: in one test on rendered 1440x900 screens it was 4-14 times smaller than PNG at fast settings, for 20-45 ms of encoding, but it was slow on photographic content (0.2-0.6 s) for little gain. A host SHOULD cap the effort it spends. Model APIs charge for images by their dimensions, not their size in bytes, so `max_edge`, `region` and `if_newer_than` usually save more than the format.
 - Hosts SHOULD keep the latest frame for each surface in use, without copying it until asked.
 
 ---
 
 ## 6. Audio
 
-Opus. On a channel: `0x01` AUDIO_CONFIG (CBOR) and `0x02` AUDIO_PACKET, `seq:u32`, `capture_us:u64`, then one Opus packet. Audio is only for sessions that ask for it. Over WebRTC, a host MAY use audio tracks instead ([§3.5](#35-webrtc-media-tracks)).
+Opus. On a channel: `0x01` AUDIO_CONFIG (CBOR) and `0x02` AUDIO_PACKET, `seq:u32`, `capture_us:u64`, then one Opus packet. Audio is only for sessions that ask for it. AUDIO_CONFIG states its `delivery`, which [§9](#9-profiles) sets. Over WebRTC, a host MAY use audio tracks instead ([§3.5](#35-webrtc-media-tracks)).
 
 Voice interaction is a matter for the agent above this protocol: speech arrives as audio or text, and the agent acts through whichever type fits.
 
@@ -219,6 +220,35 @@ Hosts MUST report what they cannot do, in SESSION_WELCOME capabilities or with `
 - A host MUST require authentication on any non-local binding, and on local listeners a browser could reach.
 - Sharing a real desktop exposes everything on it. Hosts SHOULD show a visible indicator while anyone is watching, not only while acting, and SHOULD let the owner scope a session to specific windows.
 - Agents on a real desktop are subject to [lease](./VROOM-Session.md#4-the-control-lease) suspension when the owner uses the machine.
+
+---
+
+## 9. Profiles
+
+*Draft. The defaults below are a starting point to test, not measured results.*
+
+People and agents want different things from the same stream. A person controlling a desktop wants it on time, and can do without some of it: a late frame or a late scrap of audio is worth nothing. An agent wants it complete, and can wait: a missed word or a blurred character is wrong, while 200 ms is usually fine.
+
+| Priority | `interactive` | `fidelity` |
+|---|---|---|
+| 1 | Smooth control | Reliable control |
+| 2 | Audio without gaps | Exact images |
+| 3 | Smooth video | Smooth video |
+| 4 | Image quality | Audio for speech recognition |
+
+A client chooses with `profile` in STREAM_START, and MAY override any setting the profile implies. The default is `interactive` for a client of kind `"human"` and `fidelity` for `"agent"` ([Session §2](./VROOM-Session.md#2-messages-on-vroomsession)), but the choice is about the task, not the client: a person reading code may want `fidelity`, and an agent playing a game `interactive`. The host reports what it chose in STREAM_STATE, and MUST NOT fail a request for a profile it doesn't support, only report the one it used.
+
+| Setting | `interactive` | `fidelity` |
+|---|---|---|
+| Input | As soon as possible: pointer moves coalesced, the cursor drawn by the viewer | Through ACT with guards and settling ([§5](#5-agent-access)), each with a result |
+| Under congestion | Keep the frame rate, and give up resolution and quality first | Keep quality, and give up frame rate first |
+| Frames in flight | Few, for low latency | More, since some delay is acceptable |
+| Encoder | Low-latency rate control | A floor on quality, and refinement at rest where it helps |
+| Exact pixels | Rarely | Lossless screenshots ([§5](#5-agent-access)), with video for knowing when to take them |
+| Audio `delivery` | `"timely"`: unreliable channel, Opus in-band FEC, the receiver conceals losses | `"complete"`: reliable channel, the receiver MUST NOT conceal |
+| Audio format | 48 kHz, as the source has it | 16 kHz mono is enough for most speech recognition |
+
+**Audio is where the two differ most.** For a person, a gap is worse than a guess. A receiver SHOULD conceal lost packets (Opus decoders do this when told a packet is missing, and in-band FEC recovers single losses from the next packet), and SHOULD use a jitter buffer that adapts to the path. Unlike video, audio packets don't depend on those before them, so an unreliable channel suits audio even where it didn't suit video ([§3.2](#32-messages-on-the-video-channel)). For speech recognition, a guess is worse than a gap: concealment invents sound, which can become words that weren't said. A `"complete"` receiver MUST NOT conceal, and MUST mark any gap it can't fill.
 
 ---
 
