@@ -96,7 +96,7 @@ Time from a frame's scheduled arrival to decoded output, on streams the browser 
 
 | Decoder | Median | p99 | Worst |
 |---|---:|---:|---:|
-| VideoToolbox, direct | 5-9 ms | 8-14 ms | 16 ms |
+| VideoToolbox, direct | 4-10 ms | 8-14 ms | 17 ms |
 | dav1d, direct | 5-13 ms | 11-30 ms | 34 ms |
 | Chromium 158, headless | 3-4 ms | 6-11 ms | 44 ms |
 | Firefox 159, headless | 3-6 ms | 6-61 ms | 93 ms |
