@@ -34,6 +34,7 @@ Not goals: defining LLM tool schemas, or being a test runner.
 | `vroom.browsable.control` | Reliable, ordered | Everything in [§4](#4-messages) |
 | `vroom.browsable.events` | Reliable, ordered | Network and console events, when subscribed |
 | `vroom.browsable.video.<tab>` | See [Graphical §3](./VROOM-Graphical.md#3-video) | The tab's video, in Graphical's video format |
+| `vroom.browsable.feedback` | Reliable, ordered | [Graphical's feedback messages](./VROOM-Graphical.md#34-feedback), naming the numeric tab ID |
 | `vroom.browsable.audio.<tab>` | See [Graphical §6](./VROOM-Graphical.md#6-audio) | The tab's audio |
 | `vroom.browsable.pointer` | Unreliable, unordered | [Graphical's pointer format](./VROOM-Graphical.md#41-pointer-channel) |
 | `vroom.browsable.input` | Reliable, ordered | [Graphical's input format](./VROOM-Graphical.md#42-input-channel) |
@@ -97,6 +98,9 @@ Structured, on `vroom.browsable.control`. Every action takes a `request_id`, and
 | `0xC2` | STORAGE_SET | C→S | `context`, the state |
 | `0xC3` | EVALUATE | C→S | `tab`, `frame?`, `expression`. Refused unless `evaluate` is true |
 | `0xC4` | EVALUATE_RESULT | S→C | `request_id`, `value` or `error` |
+| `0xC5` | STREAM_START | C→S | As [Graphical](./VROOM-Graphical.md#31-starting-a-stream), with `tab` for `surface` |
+| `0xC6` | STREAM_STOP | C→S | `tab` |
+| `0xC7` | STREAM_STATE | S→C | As Graphical, with `tab` |
 
 On `vroom.browsable.events`: `0xD0` NETWORK_EVENT (`tab`, `id`, `phase`, `method`, `url`, `status?`, `bytes?`) and `0xD1` CONSOLE_EVENT (`tab`, `level`, `text`, `url?`, `line?`). Bodies are metadata only. Hosts MUST NOT include request or response bodies or credential headers.
 
@@ -145,7 +149,7 @@ For Browsable, "changed" means that the DOM changed, or that a document, script 
 
 Tab video follows [Graphical's rules](./VROOM-Graphical.md#3-video), including dropping frames before they are queued.
 
-- `screencast` compresses and re-encodes on the host. It is the fallback, and costs at least one extra encode.
+- `screencast` delivers compressed frames that the host re-encodes, so text passes through two lossy steps. It works on every engine.
 - `tab_capture` takes frames from the browser's own capture path and SHOULD be preferred where available.
 - A host follows the selected tab unless the client pinned one. When the tab changes, it sends VIDEO_CONFIG and a keyframe.
 
@@ -172,6 +176,7 @@ Page content is untrusted, and a page can address an agent directly through its 
 | Engine control | [Playwright](https://playwright.dev) as a library, with CDP sessions where it needs Chromium specifics |
 | Tree | An ARIA snapshot with stable references, mapped into Node |
 | Attached mode | A browser extension, since current Chrome restricts remote debugging on the default profile |
+| H.264 encoding | WebCodecs in a hidden page of the same browser, which needs no native code |
 | Tab capture | An extension capture stream fed to a hardware encoder through WebCodecs |
 
 ---

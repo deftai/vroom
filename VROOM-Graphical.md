@@ -83,12 +83,12 @@ The host opens `vroom.graphical.video.<surface>` after STREAM_START. H.264 is th
 
 ### 3.3 Sender rules
 
-- **Drop before queuing.** The encoder takes a new frame only when the previous one has left the channel's send queue, or fits in the channel's credit on reliable paths. Otherwise it keeps only the newest captured frame.
+- **Drop before encoding.** An encoded delta cannot be dropped without breaking the frames after it, so a sender drops frames before the encoder, keeping only the newest captured frame while the encoder or the viewer is behind.
+- **Limit frames in flight.** A sender MUST limit how many frames it has sent that the receiver has not yet acknowledged with FRAME_ACK (2 is RECOMMENDED). xumux credit cannot do this: `initialWindow` must be at least `maxMessageSize`, which must hold the largest keyframe, so a full window can be seconds of video.
 - **Adapt to delay, not only loss.** A sender SHOULD use channel probes ([xumux §8.1](https://github.com/deftai/xumux/blob/main/spec/core.md#81-ping-0x10-and-pong-0x11)), which include send queues, along with receiver reports, to lower bitrate as delay grows. It MUST NOT wait for loss, because on TCP loss arrives long after the queue has formed.
 - **Avoid keyframe spikes.** Hosts SHOULD use intra refresh or reference invalidation where the encoder allows, and send a full keyframe only when needed.
 - **Send nothing when nothing changes.** A still screen uses no bandwidth, except for refinement.
 - **Refine at rest.** After motion stops, a host SHOULD send refinement frames at higher quality until the image is effectively lossless.
-- **Flow control tells you about the client.** A receiver SHOULD return credit only once a frame is handed to the decoder, so that a slow decoder slows the sender.
 
 ### 3.4 Feedback
 
@@ -99,6 +99,7 @@ On `vroom.graphical.feedback`:
 | `0x01` | RECEIVER_REPORT | CBOR, about once a second: `received`, `decoded`, `dropped`, `decode_ms`, `queue_ms`, `display_ms` |
 | `0x02` | KEYFRAME_REQUEST | CBOR: `surface`, `reason` |
 | `0x03` | NACK | CBOR: `seq`, `missing`, on unreliable paths only |
+| `0x04` | FRAME_ACK | CBOR: `surface`, `seq`, sent when a frame is decoded |
 
 ### 3.5 WebRTC media tracks
 
