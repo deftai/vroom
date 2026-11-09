@@ -178,8 +178,8 @@ On `vroom.graphical.agent`. The agent needs no video or decoder, and each answer
 
 | Type | Name | Dir | Body |
 |---|---|---|---|
-| `0x01` | SCREENSHOT_REQ | C→S | `surface`, `region?`, `max_edge?`, `format` (`png`, `jpeg`, `webp`), `quality?`, `if_newer_than?` |
-| `0x02` | SCREENSHOT | S→C | `rev`, `origin`, `scale`, `format`, `data`, `changed_since?`, or `unchanged: true` |
+| `0x01` | SCREENSHOT_REQ | C→S | `surface`, `region?`, `max_edge?`, `format` (`png`, `jpeg`, `webp`), `quality?`, `budget_ms?`, `if_newer_than?` |
+| `0x02` | SCREENSHOT | S→C | `rev`, `origin`, `scale`, `format`, `lossless`, `data`, `changed_since?`, or `unchanged: true` |
 | `0x03` | CHANGES_REQ | C→S | `surface`, `since_rev` |
 | `0x04` | CHANGES | S→C | `rev`, `regions` |
 | `0x05` | ACT | C→S | `action`, `at`, `surface`, `args`, `guard?`, `wait?` |
@@ -189,7 +189,7 @@ On `vroom.graphical.agent`. The agent needs no video or decoder, and each answer
 - **`changed_since`** lists the regions changed since the given `rev`, so an agent can request crops and not spend tokens on whole screens.
 - **Actions:** `click`, `double_click`, `right_click`, `move`, `drag` (`to`), `scroll` (`dx`, `dy`), `key` (a chord such as `"Meta+S"`), and `text`.
 - **`at`** is `{x, y}` in logical units. Agents working from an image convert it using `origin` and `scale`.
-- **Formats:** `png` and `webp` without `quality` are lossless, and hosts MUST keep them lossless. Lossy formats cost text: in one test JPEG at quality 80 lost up to 18% of words to OCR, and lossy WebP up to 11%. Lossless WebP is much smaller on text: in one test on rendered 1440x900 screens it was 4-14 times smaller than PNG at fast settings, for 20-45 ms of encoding, but it was slow on photographic content (0.2-0.6 s) for little gain. A host SHOULD cap the effort it spends. Model APIs charge for images by their dimensions, not their size in bytes, so `max_edge`, `region` and `if_newer_than` usually save more than the format.
+- **Formats:** `png` and `webp` without `quality` are lossless, and hosts MUST keep them lossless. Lossy formats cost text: in one test JPEG at quality 80 lost up to 18% of words to OCR, and lossy WebP up to 11%. Lossless WebP is much smaller on text: in one test on rendered 1440x900 screens it was 4-14 times smaller than PNG at fast settings, for 20-45 ms of encoding, but it was slow on photographic content (0.2-0.6 s) for little gain. A host SHOULD cap the effort it spends, and MAY take `budget_ms` as the most a client will wait for a smaller file. 0 asks for the fastest encoding. Model APIs charge for images by their dimensions, not their size in bytes, so `max_edge`, `region` and `if_newer_than` usually save more than the format.
 - Hosts SHOULD keep the latest frame for each surface in use, without copying it until asked.
 
 ---
