@@ -21,7 +21,7 @@ The RECOMMENDED limit is 2 unacknowledged frames, and FRAME_ACK is sent when a f
 
 **Suggestion:** scale the limit with measured RTT, or limit bytes in flight instead of frames, while keeping the goal of not queueing stale video.
 
-**Update:** §3.3 now scales the limit with the lowest measured round trip. This hasn't been tested on a congested long path, where more frames in flight could mean a longer queue. Limiting bytes instead remains an option.
+**Update:** §3.3 now scales the limit with the lowest measured round trip and the target frame rate, up to a suggested cap of 16. This hasn't been tested on a congested long path, where more frames in flight could mean a longer queue. Limiting bytes instead remains an option.
 
 ### 2. "Effectively lossless" may be unreachable in 4:2:0 (§1 goal 4, §3.3)
 

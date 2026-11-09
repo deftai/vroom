@@ -4,7 +4,7 @@
 
 *The pixels of a whole desktop, fast enough to work in, for humans and agents.*
 
-Version: 0.2.0-draft | Status: Draft | Date: 2026-11-08 | Base: [VROOM-Session](./VROOM-Session.md)
+Version: 0.2.0-draft | Status: Draft | Date: 2026-11-09 | Base: [VROOM-Session](./VROOM-Session.md)
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used as described in RFC 2119.
 
@@ -31,8 +31,8 @@ Latency is the product, so these rules are normative:
 
 | Channel | Requested delivery | Dir | Purpose |
 |---|---|---|---|
-| `vroom.graphical.control` | Reliable, ordered | Both | Stream setup, clipboard, cursor shapes |
-| `vroom.graphical.video.<surface>` | Unreliable, unordered, where available | S→C | Video |
+| `vroom.graphical.control` | Reliable, ordered | Both | Stream setup, performance records, clipboard, cursor shapes |
+| `vroom.graphical.video.<surface>` | Reliable, ordered, unless the client asks otherwise (§3.2) | S→C | Video |
 | `vroom.graphical.feedback` | Reliable, ordered | C→S | Receiver reports, keyframe requests |
 | `vroom.graphical.cursor` | Unreliable, unordered | S→C | Cursor position |
 | `vroom.graphical.pointer` | Unreliable, unordered | C→S | Pointer movement |
@@ -54,9 +54,11 @@ On `vroom.graphical.control`:
 
 | Type | Name | Dir | Body |
 |---|---|---|---|
-| `0x01` | STREAM_START | C→S | `surface`, `codecs` (preference order, as WebCodecs codec strings), `max_fps?`, `max_bitrate?`, `max_edge?`, `include_cursor?` |
+| `0x01` | STREAM_START | C→S | `surface`, `codecs` (preference order, as WebCodecs codec strings), `max_fps?`, `max_bitrate?`, `max_edge?`, `include_cursor?`, `path?` (`"datagram"` asks for §3.2's experimental path), `stats?` (`true` asks for STREAM_STATS) |
 | `0x02` | STREAM_STOP | C→S | `surface` |
-| `0x03` | STREAM_STATE | S→C | `surface`, `codec`, `fps`, `bitrate`, `source`, `encoder` |
+| `0x03` | STREAM_STATE | S→C | `surface`, `codec`, `fps`, `bitrate`, `source`, `encoder`, `path` (`"reliable"` or `"datagram"`) |
+| `0x04` | VIDEO_CONFIG | S→C | As in §3.2, with `surface`, on the datagram path, where the video channel could lose it |
+| `0x05` | STREAM_STATS | S→C | A performance record (§3.4), about once a second, only if STREAM_START asked |
 
 The host opens `vroom.graphical.video.<surface>` after STREAM_START. H.264 is the baseline, and every host and client MUST support it. Clients discover decoders at run time, with `VideoDecoder.isConfigSupported()` in browsers.
 
@@ -66,7 +68,7 @@ The host opens `vroom.graphical.video.<surface>` after STREAM_START. H.264 is th
 |---|---|---|
 | `0x01` | VIDEO_CONFIG | CBOR: `codec`, `coded_w`, `coded_h`, `description?`, `colorspace`, `scale`, `origin`. Sent before the first frame and whenever these change |
 | `0x02` | VIDEO_FRAME | One encoded frame, on a reliable path |
-| `0x03` | VIDEO_SLICE | Part of one encoded frame, on an unreliable path |
+| `0x03` | VIDEO_SLICE | Part of one encoded frame, on the datagram path |
 
 **VIDEO_FRAME** is a 32-byte binary header, then the frame:
 
@@ -79,14 +81,16 @@ The host opens `vroom.graphical.video.<surface>` after STREAM_START. H.264 is th
 | `flags` | 1 | `0x01` keyframe, `0x02` refinement (sharpening a still image) |
 | `reserved` | 3 | MUST be 0 |
 
-**VIDEO_SLICE** carries the same header on every slice with `index` and `count` (`uint16` each) added, then the slice bytes. A slice MUST fit the path's largest message. Recovery is by NACK and optional FEC, to be specified with the QUIC datagram binding. A frame not completed in time is abandoned, and the receiver reports it.
+**VIDEO_SLICE** carries the same header on every slice with `index` and `count` (`uint16` each) added, then the slice bytes. A slice MUST fit the path's largest message. Recovery is by NACK. A frame not completed in time is abandoned, and the receiver reports it.
+
+**Slices are experimental, and senders SHOULD use VIDEO_FRAME on a reliable channel unless the client asks.** A delta frame needs the frame before it, so later frames wait for a lost packet on either path, and QUIC's own recovery did better than NACKs. In one test of a synthetic stream of about 1 Mbit/s with 20 ms of added round trip, at 3% packet loss the 99th percentile from page to canvas was 59-71 ms for QUIC's session stream and 102-106 ms for slices. At 10% loss the stream held 33-38 fps, while slices failed to start in 2 of 3 runs and reached 0.3 fps in the third. FEC and higher bitrates weren't tested, and may change this.
 
 ### 3.3 Sender rules
 
 - **Drop before encoding.** An encoded delta cannot be dropped without breaking the frames after it, so a sender drops frames before the encoder, keeping only the newest captured frame while the encoder or the viewer is behind.
-- **Limit frames in flight.** A sender MUST limit how many frames it has sent that the receiver has not yet acknowledged with FRAME_ACK. A fixed limit caps the frame rate on a long path, so a sender SHOULD allow at least 2, plus what the path's lowest measured round trip holds at the current frame rate, up to a cap. It SHOULD use the lowest round trip and not the current one, which includes any queue, so that a queue cannot raise its own limit. In one test with acknowledgements delayed by 100 ms, a fixed limit of 2 reached 19 fps and this reached 60 fps. xumux credit cannot do this: `initialWindow` must be at least `maxMessageSize`, which must hold the largest keyframe, so a full window can be seconds of video.
+- **Limit frames in flight.** A sender MUST limit how many frames it has sent that the receiver has not yet acknowledged with FRAME_ACK. A fixed limit caps the frame rate on a long path, so a sender SHOULD use `ceil(lowest_rtt × target_fps) + 1`, kept between 2 and a cap (16 is RECOMMENDED). It SHOULD use the lowest round trip and not the current one, which includes any queue, so that a queue cannot raise its own limit. It SHOULD use the target frame rate and not the achieved one, which falls when the limit is too tight and would keep it there. It MUST count only frames it really sent: the encoder may drop a frame, nothing will ever acknowledge it, and counting it can stop the stream for good. In one test with acknowledgements delayed by 100 ms, a fixed limit of 2 reached 19 fps and this reached 60 fps. xumux credit cannot do this: `initialWindow` must be at least `maxMessageSize`, which must hold the largest keyframe, so a full window can be seconds of video.
 - **Stay well under the link's capacity.** A sender SHOULD keep video well below its estimated capacity, and SHOULD spread each frame's bytes over the frame interval. Bytes already in flight queue at the bottleneck, where no priority can overtake them: in one test on a 50 Mbit/s link, input round trip was about 0.3 ms beside 20 Mbit/s of video, 10 ms beside 40 Mbit/s, and 80-340 ms beside a sender running flat out.
-- **Adapt to delay, not only loss.** A sender SHOULD use channel probes ([xumux §8.1](https://github.com/deftai/xumux/blob/main/spec/core.md#81-ping-0x10-and-pong-0x11)), which include send queues, along with receiver reports, to lower bitrate as delay grows. It MUST NOT wait for loss, because on TCP loss arrives long after the queue has formed.
+- **Adapt to delay, not only loss.** A sender SHOULD use channel probes ([xumux §8.1](https://github.com/deftai/xumux/blob/main/spec/core.md#81-ping-0x10-and-pong-0x11)), which include send queues, along with receiver reports, to lower bitrate as delay grows. It MUST NOT wait for loss, because on TCP loss arrives long after the queue has formed. It SHOULD ignore the delay of a keyframe and of frames sent while one is unacknowledged, which comes from the keyframe's size and not from a queue, and SHOULD forget old delay by time and not by sample count, since on a nearly still screen samples are far apart. In one session on a 21 ms path without either rule, one keyframe took the target from 12 to about 1 Mbit/s with nothing queued.
 - **Avoid keyframe spikes.** Hosts SHOULD use intra refresh or reference invalidation where the encoder allows, and send a full keyframe only when needed.
 - **Send nothing when nothing changes.** A still screen uses no bandwidth, except for refinement.
 - **Refine at rest only if it helps.** After motion stops, a host MAY send refinement frames at higher quality. They can't exceed what the pixel format carries: in one test of H.264 in 4:2:0, text-heavy pages already reached the limit set by chroma subsampling, and refinement frames added little.
@@ -97,10 +101,20 @@ On `vroom.graphical.feedback`:
 
 | Type | Name | Body |
 |---|---|---|
-| `0x01` | RECEIVER_REPORT | CBOR, about once a second: `received`, `decoded`, `dropped`, `decode_ms`, `queue_ms`, `display_ms` |
+| `0x01` | RECEIVER_REPORT | CBOR, about once a second: `surface`, `received`, `decoded`, `dropped`, `decode_ms`, `queue_ms`, `display_ms`, and optionally the fields below |
 | `0x02` | KEYFRAME_REQUEST | CBOR: `surface`, `reason` |
 | `0x03` | NACK | CBOR: `seq`, `missing`, on unreliable paths only |
-| `0x04` | FRAME_ACK | CBOR: `surface`, `seq`, sent when a frame is decoded |
+| `0x04` | FRAME_ACK | CBOR: `surface`, `seq`, sent when a frame is decoded or discarded. Frames a receiver discards MUST be acknowledged too, or the sender's limit can stop the stream while it waits for a keyframe it can't send |
+
+A RECEIVER_REPORT covers the time since the last one, and times are medians over it:
+
+- `dropped` counts frames that arrived and were never shown.
+- `decode_ms` runs from submitting a frame to the decoder until it comes out.
+- `queue_ms` is how far a frame's arrival rose above its lowest recent delay, comparing `send_us` with the receiver's clock. This needs no shared clock, and unlike gaps between frames it isn't fooled by a still screen, which sends nothing.
+- `display_ms` runs from decoded to drawn.
+- Optional fields are `drawn`, `stalls` (runs of frames with `queue_ms` of 100 ms or more), `decode_p95_ms`, `queue_p95_ms`, `queue_max_ms`, `display_p95_ms`, `canvas_w`, `canvas_h` and `hidden`.
+
+A host MAY combine reports with its own numbers into a performance record, which is experimental and whose fields may change. Records carry no screen content. Two machines share no clock, so a host that reports latency MUST label it an estimate: for example capture to send, plus half the acknowledgement round trip without decoding, plus decoding and drawing. In testing on one machine that sum came within about 4 ms of measured median latency, and it missed the worst frames: 36 ms against a 99th percentile of 160 ms at 10% packet loss. It also leaves out the wait before capture and the display's own lag.
 
 ### 3.5 WebRTC media tracks
 
