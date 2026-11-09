@@ -178,8 +178,8 @@ On `vroom.graphical.agent`. The agent needs no video or decoder, and each answer
 
 | Type | Name | Dir | Body |
 |---|---|---|---|
-| `0x01` | SCREENSHOT_REQ | C→S | `surface`, `region?`, `max_edge?`, `format` (`png`, `jpeg`, `webp`), `quality?`, `budget_ms?`, `if_newer_than?`, `patches_since?` |
-| `0x02` | SCREENSHOT | S→C | `rev`, `origin`, `scale`, `format`, `lossless`, then `data` and `changed_since?`, or `since` and `patches`, or `unchanged: true` |
+| `0x01` | SCREENSHOT_REQ | C→S | `surface`, `region?`, `max_edge?`, `format` (`png`, `jpeg`, `webp`), `quality?`, `budget_ms?`, `if_newer_than?`, `patches_since?`, `tile?` |
+| `0x02` | SCREENSHOT | S→C | `rev`, `origin`, `scale`, `format`, `lossless`, then `data` and `changed_since?`, or `since`, `tile` and `patches`, or `unchanged: true` |
 | `0x03` | CHANGES_REQ | C→S | `surface`, `since_rev` |
 | `0x04` | CHANGES | S→C | `rev`, `regions` |
 | `0x05` | ACT | C→S | `action`, `at`, `surface`, `args`, `guard?`, `wait?` |
@@ -187,6 +187,7 @@ On `vroom.graphical.agent`. The agent needs no video or decoder, and each answer
 
 - **`if_newer_than`** avoids sending an image the agent already has: the host answers `unchanged: true` if the surface has not changed since that revision.
 - **`patches_since`** asks for only what changed since a revision the agent has a picture of. The host answers with `patches`, each `{x, y, w, h, width, height, data}` in logical units, which don't overlap and cover every change, so laying them over that picture gives the new one exactly. A host MAY send the whole picture instead, as when much of the surface changed or it no longer knows what changed, and MUST then send `data` and no `patches`. Patches can't be combined with `region` or `max_edge`.
+- **`tile`** is the patch grid in frame pixels. Smaller tiles send less unchanged area, and larger ones fewer, better-compressed images. A host spots changes on some grid of its own, and SHOULD round a requested size up to a multiple of it, since coarser tiles can be made exactly from finer ones and finer ones can't be known. It says the size it used.
 - **`changed_since`** lists the regions changed since the given `rev`, so an agent can request crops and not spend tokens on whole screens.
 - **Actions:** `click`, `double_click`, `right_click`, `move`, `drag` (`to`), `scroll` (`dx`, `dy`), `key` (a chord such as `"Meta+S"`), and `text`.
 - **`at`** is `{x, y}` in logical units. Agents working from an image convert it using `origin` and `scale`.
