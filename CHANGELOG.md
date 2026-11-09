@@ -14,10 +14,12 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 - `control_encoding` negotiation field in both VROOM-Graphical and VROOM-Terminal handshakes — CBOR preferred, JSON accepted
 - HELLO bootstrap protocol for encoding negotiation (always JSON, selects encoding for subsequent messages)
 - README landing page linking both companion protocol specs
+- VROOM-Graphical review notes: non-normative open questions
 
 ### Changed
 - VROOM-Graphical 0.2: targets OS desktops; physical key input plus TEXT; surface-scoped logical coordinates; video channel on every xumux binding with drop-before-queue rules; separate cursor channel; agent screenshots and changed regions. Pointer gains sequence numbers, and scroll moves to the reliable channel. MODE replaced by the lease; COMMAND, NAVIGATE and PASTE removed
 - VROOM-Structural 0.2: the browser CDP adapter moves to VROOM-Browsable; PIXEL_NEED and PIXEL_RESULT removed in favour of Graphical screenshots; ACT gains guards and settling
+- VROOM-Graphical: still video no longer has to reach effectively lossless, because 4:2:0 cannot carry it; refinement frames become optional
 - All channels move from `omux/*` to `vroom.<type>.*`, on xumux 0.3
 - Renamed existing VROOM spec to VROOM-Graphical (graphical/desktop access protocol)
 - VROOM-Graphical control channel updated from JSON-only to CBOR/JSON with encoding negotiation

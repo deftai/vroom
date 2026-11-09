@@ -23,7 +23,7 @@ Latency is the product, so these rules are normative:
 1. **Never queue stale video.** A sender drops frames rather than building a backlog.
 2. **The cursor never waits for video.** It has its own channel and is drawn by the viewer.
 3. **Input outranks video** on any shared path.
-4. **Text is sharp at rest.** Motion may be soft, but a still screen converges to crisp.
+4. **A still screen gets no worse.** Motion may be soft, but a still screen converges to the best its pixel format can carry. A client that needs exact pixels asks for a lossless screenshot (§5).
 
 ---
 
@@ -89,7 +89,7 @@ The host opens `vroom.graphical.video.<surface>` after STREAM_START. H.264 is th
 - **Adapt to delay, not only loss.** A sender SHOULD use channel probes ([xumux §8.1](https://github.com/deftai/xumux/blob/main/spec/core.md#81-ping-0x10-and-pong-0x11)), which include send queues, along with receiver reports, to lower bitrate as delay grows. It MUST NOT wait for loss, because on TCP loss arrives long after the queue has formed.
 - **Avoid keyframe spikes.** Hosts SHOULD use intra refresh or reference invalidation where the encoder allows, and send a full keyframe only when needed.
 - **Send nothing when nothing changes.** A still screen uses no bandwidth, except for refinement.
-- **Refine at rest.** After motion stops, a host SHOULD send refinement frames at higher quality until the image is effectively lossless.
+- **Refine at rest only if it helps.** After motion stops, a host MAY send refinement frames at higher quality. They can't exceed what the pixel format carries: in one test of H.264 in 4:2:0, text-heavy pages already reached the limit set by chroma subsampling, and refinement frames added little.
 
 ### 3.4 Feedback
 

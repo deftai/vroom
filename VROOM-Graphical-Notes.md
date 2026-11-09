@@ -27,6 +27,8 @@ The RECOMMENDED limit is 2 unacknowledged frames, and FRAME_ACK is sent when a f
 
 **Suggestion:** either define the target as luma quality for 4:2:0 streams, or add a 4:4:4 path. A 4:4:4 path needs decoder support checks, which have not been done.
 
+**Update:** measurement agreed, so §1 goal 4 and §3.3 no longer ask for effectively lossless video. Making text fully crisp in the viewer is still open.
+
 ### 3. Pacing frames larger than one interval's budget (§3.3)
 
 Senders SHOULD spread each frame's bytes over the frame interval, but some frames can't fit. The largest 1080p frames observed were 97-205 KB, which take about 0.26-0.56 s to send at 3 Mbit/s, against a 33 ms interval at 30 fps.
@@ -49,5 +51,4 @@ Senders SHOULD spread each frame's bytes over the frame interval, but some frame
 
 - Hardware H.264 against AV1. H.264 is the mandatory baseline, so optional AV1 has to justify itself against it.
 - The §3.3 sender rules, which the test harness doesn't implement yet: it queues frames instead of dropping before encoding, and has no in-flight limit.
-- How quickly and how sharply refinement converges on a still screen.
 - Decode latency through WebCodecs in browsers. The tests called VideoToolbox and dav1d directly.
