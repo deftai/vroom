@@ -23,6 +23,7 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 - VROOM-Graphical: the limit's inputs are defined, with a suggested cap of 16, and only frames really sent count towards it
 - VROOM-Graphical: video defaults to a reliable channel and VIDEO_SLICE becomes experimental, because slices did worse than QUIC's own recovery under packet loss
 - VROOM-Graphical: FRAME_ACK also covers discarded frames, and senders ignore delay caused by a keyframe's size
+- VROOM-Graphical: FRAME_ACK can carry the frame's delivery rate, and senders measure the path and hold a share against other traffic
 - VROOM-Graphical: RECEIVER_REPORT's fields are defined, and STREAM_START, STREAM_STATE and the control channel gain `path`, `stats`, VIDEO_CONFIG and STREAM_STATS
 - VROOM-Graphical: still video no longer has to reach effectively lossless, because 4:2:0 cannot carry it; refinement frames become optional
 - All channels move from `omux/*` to `vroom.<type>.*`, on xumux 0.3
