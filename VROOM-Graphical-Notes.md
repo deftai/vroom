@@ -6,7 +6,29 @@ Date: 2026-11-08
 
 ## Evidence
 
-All tests ran on a single Apple M4 on macOS 15.7. Most used six lossless 1080p clips from the [AOM screen content test set](https://media.xiph.org/video/aomctc/test_set/b2_scc/), each 130 frames. 4K results use a synthetic clip. These are short runs on one machine, so treat the numbers as rough. M1, encoder CPU use and power, and real network congestion have not been tested.
+All tests ran on a single Apple M4 (10 cores) on macOS 15.7. These are short runs on one machine, so treat the numbers as rough. M1, encoder CPU use and power, and real network congestion have not been tested.
+
+**Clips.** Six lossless 1080p clips of 130 frames from the [AOM screen content test set](https://media.xiph.org/video/aomctc/test_set/b2_scc/), plus a synthetic clip for 4K results:
+
+| Clip | Frame rate | Owner | License |
+|---|---:|---|---|
+| Debugging, Spreadsheet | 30 fps | Netflix Inc. | CC BY 4.0 |
+| Wikipedia | 30 fps | Thomas Daede | CC0 |
+| SceneComposition_1 | 15 fps | Yu-Chen Sun | CC BY-SA 4.0 |
+| Slides1 | 30 fps | Tencent | Standards development and testing only |
+| MissionControlClip3 | 60 fps | Apple Inc. (contains a Vidyo sequence) | Academic research and standards development only |
+
+**Encoders.** Frames are fed on the capture clock, and latency runs from scheduled capture to encoded output.
+
+| Encoder | Settings |
+|---|---|
+| libaom 3.15.3 | `AOM_USAGE_REALTIME`, CBR, `lag_in_frames=0`, `kf_max_dist=9999`, 8 threads, 2 tile columns at 1080p, `tune-content=screen`, speed 7 or 11 |
+| SVT-AV1 4.3.0 | `rtc=1`, `rc=2`, `keyint=-1`, `scm=1`, preset 8. Screen tools are forced off at preset 9 and above |
+| VideoToolbox H.264, HEVC | Hardware required, low-latency rate control, `RealTime`, no reordering, High or Main auto level, `AverageBitRate`, `MaxKeyFrameInterval=100000` |
+
+**Scoring.** PSNR is against the lossless 4:2:0 source unless stated. In the codec comparison and sender tests, each source frame is scored against the latest decoded frame, because encoders can drop frames.
+
+**Harness.** The code, per-clip results and per-frame stats are in the private repo [`deftai/vroom-lab`](https://github.com/deftai/vroom-lab), so not everyone reading this will have access.
 
 ## Open issues
 
@@ -85,6 +107,54 @@ Means across the six clips. BD-rate is the bitrate change against H.264 at equal
 - PSNR doesn't capture how text looks, so these need a visual comparison too.
 
 **Reading:** the H.264 baseline holds up well, and hardware HEVC is the cheapest gain. Software AV1 saves bitrate at some settings, but with larger latency spikes. It's most useful for low-bitrate links and exact-match refinement.
+
+### Per-clip results
+
+BD-rate against H.264, so negative is better:
+
+| Clip | HEVC | libaom 11 | libaom 7 | SVT-AV1 8 |
+|---|---:|---:|---:|---:|
+| Debugging | -13.0% | -11.3% | -39.8% | -21.3% |
+| Spreadsheet | -21.5% | -9.1% | -16.9% | +30.3% |
+| Wikipedia | -18.4% | -15.3% | -23.1% | -17.6% |
+| Slides1 | -28.4% | +3.5% | -10.4% | -14.2% |
+| SceneComposition | -6.0% | +89.9% | -10.4% | -9.5% |
+| MissionControlClip3 | -21.3% | -33.4% | -40.8% | -28.0% |
+
+Actual Mbit/s and mean luma PSNR in dB at each target. Encoders often undershoot their target, so compare the two together:
+
+| Clip | Encoder | 1.5 Mbit/s | 3 Mbit/s | 6 Mbit/s |
+|---|---|---:|---:|---:|
+| Debugging | H.264 | 1.52 / 40.7 | 2.35 / 49.1 | 2.56 / 51.5 |
+| Debugging | HEVC | 1.47 / 43.0 | 2.13 / 49.8 | 2.35 / 51.9 |
+| Debugging | libaom 11 | 1.41 / 46.0 | 2.33 / 49.0 | 2.42 / 50.9 |
+| Debugging | libaom 7 | 1.47 / 50.9 | 2.46 / 55.3 | 3.81 / 60.3 |
+| Debugging | SVT-AV1 8 | 1.27 / 43.6 | 2.20 / 51.0 | 2.58 / 55.0 |
+| Spreadsheet | H.264 | 1.50 / 35.0 | 3.04 / 43.8 | 5.02 / 49.1 |
+| Spreadsheet | HEVC | 1.51 / 38.1 | 3.02 / 46.4 | 4.31 / 50.3 |
+| Spreadsheet | libaom 11 | 1.22 / 34.9 | 1.82 / 38.4 | 2.31 / 39.8 |
+| Spreadsheet | libaom 7 | 1.02 / 34.4 | 1.39 / 36.3 | 1.64 / 37.1 |
+| Spreadsheet | SVT-AV1 8 | 1.10 / 30.4 | 2.16 / 36.8 | 3.96 / 43.0 |
+| Wikipedia | H.264 | 1.39 / 41.3 | 2.27 / 47.4 | 3.08 / 49.5 |
+| Wikipedia | HEVC | 1.14 / 42.8 | 2.04 / 47.7 | 2.67 / 49.2 |
+| Wikipedia | libaom 11 | 1.13 / 45.1 | 2.31 / 47.9 | 4.03 / 50.1 |
+| Wikipedia | libaom 7 | 1.47 / 47.0 | 2.42 / 49.1 | 3.59 / 50.3 |
+| Wikipedia | SVT-AV1 8 | 1.13 / 41.4 | 1.85 / 47.1 | 2.95 / 50.4 |
+| Slides1 | H.264 | 1.40 / 40.9 | 2.82 / 47.0 | 4.97 / 52.0 |
+| Slides1 | HEVC | 1.38 / 43.6 | 2.73 / 49.7 | 4.39 / 54.3 |
+| Slides1 | libaom 11 | 1.59 / 41.9 | 2.90 / 47.2 | 5.08 / 51.0 |
+| Slides1 | libaom 7 | 1.54 / 43.2 | 2.77 / 47.8 | 4.29 / 51.1 |
+| Slides1 | SVT-AV1 8 | 1.31 / 42.0 | 2.65 / 47.6 | 5.16 / 53.8 |
+| SceneComposition | H.264 | 1.47 / 49.0 | 1.73 / 51.1 | 1.77 / 51.8 |
+| SceneComposition | HEVC | 1.39 / 49.0 | 1.58 / 50.6 | 1.58 / 51.2 |
+| SceneComposition | libaom 11 | 1.36 / 47.0 | 2.28 / 48.6 | 3.64 / 50.7 |
+| SceneComposition | libaom 7 | 1.30 / 50.1 | 2.17 / 52.9 | 3.79 / 56.8 |
+| SceneComposition | SVT-AV1 8 | 1.33 / 50.4 | 2.42 / 53.2 | 2.95 / 54.4 |
+| MissionControlClip3 | H.264 | 1.48 / 28.6 | 3.07 / 34.3 | 6.01 / 42.9 |
+| MissionControlClip3 | HEVC | 1.50 / 29.9 | 3.05 / 37.5 | 5.79 / 44.9 |
+| MissionControlClip3 | libaom 11 | 2.20 / 36.8 | 3.62 / 41.1 | 6.04 / 44.7 |
+| MissionControlClip3 | libaom 7 | 2.17 / 37.9 | 3.33 / 41.6 | 5.36 / 44.5 |
+| MissionControlClip3 | SVT-AV1 8 | 1.32 / 30.7 | 2.37 / 35.5 | 4.81 / 43.1 |
 
 ### Dropping before encoding (§3.3)
 
