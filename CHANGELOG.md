@@ -25,6 +25,7 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 - VROOM-Graphical: FRAME_ACK also covers discarded frames, and senders ignore delay caused by a keyframe's size
 - VROOM-Graphical: FRAME_ACK can carry the frame's delivery rate, and senders measure the path and hold a share against other traffic
 - VROOM-Graphical: receivers omit `rate_kbps` when a frame can't be timed, and senders that pace video pace at twice the target or faster, so the delivery rate still measures the path
+- VROOM-Graphical: STREAM_STATS has a defined baseline body, STREAM_STATE's `path` is absent for media tracks, and the frame limit's units are stated
 - VROOM-Graphical: RECEIVER_REPORT's fields are defined, and STREAM_START, STREAM_STATE and the control channel gain `path`, `stats`, VIDEO_CONFIG and STREAM_STATS
 - VROOM-Graphical: still video no longer has to reach effectively lossless, because 4:2:0 cannot carry it; refinement frames become optional
 - All channels move from `omux/*` to `vroom.<type>.*`, on xumux 0.3
