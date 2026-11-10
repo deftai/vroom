@@ -19,6 +19,7 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 - VROOM-Graphical: READ_TEXT_REQ/READ_TEXT (`0x07`/`0x08`), reading a surface's text with line boxes; the `open` and `clipboard` actions; CLIPBOARD_SYNC (`0x23`), how a client opts in to the clipboard, answered with the state in force; capability names `read_text`, `open` and `clipboard`
 
 ### Changed
+- VROOM-Graphical review notes: the in-flight limit over an internet path with a bottleneck, and OCR text legibility per encoder
 - VROOM-Graphical: in the `text` action, newlines press Return and tabs press Tab; agent-channel answers and errors echo `request_id`
 - VROOM-Graphical review notes: encoder CPU per frame, and the in-flight limit over an internet path
 - VROOM-Graphical: frames bigger than one interval are sent whole, with captures dropped meanwhile and their delay not used to lower the bitrate

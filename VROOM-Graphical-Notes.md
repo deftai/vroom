@@ -6,7 +6,7 @@ Date: 2026-11-10
 
 ## Evidence
 
-All tests ran on a single Apple M4 (10 cores) on macOS 15.7. These are short runs on one machine, so treat the numbers as rough. M1, encoder power, and congestion on an internet path with a real bottleneck have not been tested.
+All tests ran on a single Apple M4 (10 cores) on macOS 15.7. These are short runs on one machine, so treat the numbers as rough. M1, encoder power, and congestion on internet paths other than the one in issue 1 have not been tested.
 
 **Clips.** Six lossless 1080p clips of 130 frames from the [AOM screen content test set](https://media.xiph.org/video/aomctc/test_set/b2_scc/), plus a synthetic clip for 4K results:
 
@@ -85,6 +85,15 @@ Lag here runs from the page drawing to the viewer's canvas. The scaled limit had
 | Stalls over 100 ms per run | 27 | 22 |
 
 The scaled limit was better on every measure on this path. On localhost it was too, except the 99th percentile with a 1 s buffer. This path had no bottleneck tighter than what the bitrate adapter settled on, so it doesn't test a congested internet path.
+
+**With a bottleneck on that path.** A relay in front of the viewer limited what came back to 4 or 2 Mbit/s, so the queue built up in TCP behind it, as at a slow link. Medians of 3 runs each, every run started on a mostly idle machine:
+
+| Bottleneck | Fixed limit of 2: lag p50 / p95 / p99, fps | §3.3 scaled limit: lag p50 / p95 / p99, fps |
+|---|---:|---:|
+| 4 Mbit/s | 62 / 243 / 559 ms, 17.1 fps | 48 / 158 / 306 ms, 30.8 fps |
+| 2 Mbit/s | 63 / 466 / 870 ms, 13.7 fps | 63 / 331 / 793 ms, 16.9 fps |
+
+The scaled limit had a higher frame rate in every run, and lower p95 and p99, with the same or lower median. Runs varied by up to 2x at p95, so treat these medians as rough.
 
 
 ### 2. Making text crisp in the viewer (§1 goal 4, §3.3)
@@ -167,6 +176,20 @@ CPU time per source frame, on the capture clock: the encoder process plus VideoT
 
 Software AV1 costs 8-40 times the CPU of hardware encoding. At 60 fps a whole core is 16.7 ms a frame, so at 4K60 software AV1 needs 3.5-11 cores' worth and couldn't keep up on this M4. Power wasn't measured.
 
+### Text legibility
+
+PSNR doesn't say whether words stay readable, so OCR was used instead: Vision read each decoded frame and its 4:2:0 source, at four frames of each of the four text-heavy clips, holding the last frame shown where the encoder dropped one. Recall is the share of the source's words still read:
+
+| Encoder | 1.5 Mbit/s | 3 Mbit/s | 6 Mbit/s |
+|---|---:|---:|---:|
+| Hardware H.264 | 95.1% | 96.5% | 96.8% |
+| Hardware HEVC | 96.3% | 97.0% | 97.6% |
+| libaom speed 11 | 95.6% | 96.5% | 96.7% |
+| libaom speed 7 | 96.2% | 96.6% | 97.0% |
+| SVT-AV1 preset 8 | 93.7% | 96.9% | 98.2% |
+
+On average every encoder kept 93.7-98.2% of words readable, and differences of 1-2 points between encoders are within what 16 frames per cell can resolve, so the bitrate savings above don't show up as a clear legibility gap at these rates. The weakest case was SVT-AV1 at 1.5 Mbit/s, with one frame at 57%. OCR isn't a person reading, and scoring against the 4:2:0 source leaves out the chroma loss on coloured text (issue 2).
+
 ### Per-clip results
 
 BD-rate against H.264, so negative is better:
@@ -247,5 +270,5 @@ VideoToolbox's output matched dav1d frame for frame on all tested AV1 streams, i
 
 - Encoder power. CPU time is under Codec results.
 - M1, M2, M3 and M5. Software decoders and encoders will be slower on older chips.
-- Scaled in-flight limits on an internet path with a real bottleneck. Issue 1 has a simulation, a shaped localhost path and an unshaped internet path.
-- Visual comparison of text quality.
+- Scaled in-flight limits on other internet paths. Issue 1 has a simulation, a shaped localhost path, and one internet path with and without a bottleneck.
+- A visual check of text by people. OCR recall is under Codec results.
