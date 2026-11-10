@@ -4,13 +4,15 @@
 
 *A modern, capability-aware terminal protocol for the age of Kitty, Sixel, and AI agents.*
 
-Official Name: VROOM-Terminal | Companion Protocol: [VROOM-Graphical](./VROOM-Graphical.md)
+Official Name: VROOM-Terminal | Base: [VROOM-Session](./VROOM-Session.md) | Companions: [Graphical](./VROOM-Graphical.md), [Structural](./VROOM-Structural.md), [Browsable](./VROOM-Browsable.md)
 Transport: [xumux](https://xumux.org) (WebSocket, WebRTC Data Channels, QUIC, TCP, etc.)
 Version: 0.2.0-draft | Status: Draft | Date: 2026-03-28
 
-Both protocols can run over the same xumux connection.
+All four types can run over the same xumux connection.
 
-**Implementation note:** Control TLV/CBOR and PTY bytes are **channel codecs** on xumux — not mux-framer encodings. See [I/O stack](./docs/io-stack.md).
+> **Pending alignment with VROOM-Session.** This document predates it. Its own HELLO, authentication and TLV header overlap with SESSION_HELLO, xumux `auth` and the xumux frame Type, and will be aligned in its next revision.
+
+**Implementation note:** control TLV with CBOR or JSON bodies, and raw PTY bytes, are **channel codecs** on xumux, not mux-framer encodings. See [I/O stack](./docs/io-stack.md).
 
 ---
 
@@ -72,7 +74,7 @@ Simple binary struct (no CBOR):
 
 Complex messages (PTY_REQUEST, capabilities, auth, etc.) use **CBOR** (preferred) or JSON for development.
 
-**Control Encoding:** The HELLO message is always sent as JSON (for bootstrapping). The client includes a `control_encoding` field listing supported encodings in preference order. The server's HELLO response selects one, and all subsequent messages use that encoding. This negotiation mechanism is shared with [VROOM-Graphical](./VROOM-Graphical.md).
+**Control Encoding:** The HELLO message is always sent as JSON (for bootstrapping). The client includes a `control_encoding` field listing supported encodings in preference order. The server's HELLO response selects one, and all subsequent messages use that encoding. This negotiation mechanism is now part of [VROOM-Session](./VROOM-Session.md).
 
 HELLO example:
 
@@ -203,7 +205,7 @@ stateDiagram-v2
 
 ### Recommended Architecture
 
-- Single `vroomd` daemon supporting both VROOM-Graphical and VROOM-Terminal
+- Hosts may run one process per VROOM type; a client sees the same protocol either way
 - Shared `vroom-protocol` and xumux libraries
 - Build thin gateways (`vroom-to-ssh` and `ssh-to-vroom`) for easy adoption
 

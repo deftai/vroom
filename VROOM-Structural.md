@@ -2,10 +2,10 @@
 
 **Virtual Remoting Over Open Methods — Structural Protocol**
 
-*One UI tree for agents. Hosts map it to AX, UIA, or AT-SPI (and pixels when the tree lies).*
+*One UI tree for agents. Hosts map it to AX, UIA or AT-SPI.*
 
-Official Name: VROOM-Structural | Companions: [VROOM-Graphical](./VROOM-Graphical.md), [VROOM-Terminal](./VROOM-Terminal.md)
-Version: 0.1.0-draft | Status: Draft | Date: 2026-09-06
+Official Name: VROOM-Structural | Base: [VROOM-Session](./VROOM-Session.md) | Companions: [Graphical](./VROOM-Graphical.md), [Terminal](./VROOM-Terminal.md), [Browsable](./VROOM-Browsable.md)
+Version: 0.2.0-draft | Status: Draft | Date: 2026-11-08
 
 ---
 
@@ -17,11 +17,12 @@ VROOM-Structural is the **structured UI access** protocol in the VROOM family. A
 |----------|---------|----------------|
 | **VROOM-Terminal** | Character grid / PTY | Bytes + control |
 | **VROOM-Graphical** | Framebuffer + A/V | Video, pointer, voice |
-| **VROOM-Structural** | Component tree | Snapshot / find / act (+ pixel fallback) |
+| **VROOM-Structural** | Native app component tree | Snapshot / find / act |
+| **VROOM-Browsable** | Browser tabs and pages | Page tree, navigation, network, video |
 
 VROOM-Structural is an application protocol on [xumux](https://xumux.org). It MAY share one xumux connection with Graphical and/or Terminal.
 
-**Implementation note:** Tree IR (CBOR preferred) is a **channel codec** on `omux/structural`. See [I/O stack](./docs/io-stack.md).
+**Implementation note:** the Structural messages, in the encoding selected in SESSION_WELCOME (CBOR by default), are a **channel codec** on `vroom.structural.control`, decoded after demux. See [I/O stack](./docs/io-stack.md).
 
 ```mermaid
 flowchart TD
@@ -32,15 +33,11 @@ flowchart TD
   mac[macOS AX adapter]
   win[Windows UIA adapter]
   lin[Linux AT-SPI adapter]
-  cdp[Browser CDP adapter]
-  pix[Pixel fallback]
 
   agent --> xumux --> structural --> ir
   ir --> mac
   ir --> win
   ir --> lin
-  ir --> cdp
-  structural --> pix
 ```
 
 **Design rule:** agents speak **only** the IR and Structural messages. Per-OS translation happens **on the host**, on the fly. No `axRole` / `ControlType` / ATK role in the agent-facing schema.
@@ -49,9 +46,9 @@ flowchart TD
 
 ## Goals
 
-- One agent vocabulary across macOS, Windows, Linux, and browser (CDP)
+- One agent vocabulary across macOS, Windows and Linux, shared with [Browsable](./VROOM-Browsable.md)
 - Prefer tree fidelity over vision when the platform exposes a usable node
-- Explicit, negotiated pixel fallback when the tree is empty, stale, or canvas-like
+- Clear signals when the tree is empty or opaque, so the agent can move to [Graphical](./VROOM-Graphical.md#5-agent-access)
 - Reliable, ordered delivery for snapshots and acts (never ride the unreliable pointer channel)
 - Coexist with VROOM-Graphical (human View/Interact) without requiring video for agent-only sessions
 
@@ -150,7 +147,9 @@ For every ACT, the host MUST resolve in order and report which rung succeeded:
 
 1. **Tree** — native action/pattern (AX press, UIA Invoke, ATK doAction)
 2. **Hybrid** — tree bounds exist → synthesize click/type at bounds center (or focused node)
-3. **Pixel** — only if client allowed `pixel_fallback` and tree/hybrid failed → screenshot region + vision/OCR path local to host or delegated as `PIXEL_NEED`
+3. **Pixel** — the client supplies coordinates, usually from a [Graphical screenshot](./VROOM-Graphical.md#5-agent-access). The host never guesses from pixels itself; running vision is the agent's job
+
+When rungs 1 and 2 fail, the host returns `ok: false`, `rung: "none"`, and `error.detail.needs_pixels: true`. A rung-3 ACT carries a `bounds` target and reports `rung: "pixel"`.
 
 Agents SHOULD prefer FIND → ACT with `id` over raw coordinates. Coordinates are always a degradation.
 
@@ -160,11 +159,9 @@ Agents SHOULD prefer FIND → ACT with `id` over raw coordinates. Coordinates ar
 
 | Channel | Reliability | Purpose |
 |---------|-------------|---------|
-| `omux/structural` | **Reliable, ordered** | All Structural messages (HELLO, SNAPSHOT, FIND, ACT, …) |
-| `omux/control` | Reliable, ordered | Optional shared session control if co-hosted with Graphical |
-| WebRTC video (optional) | Media | Pixel frames when fallback or human View is active |
+| `vroom.structural.control` | **Reliable, ordered** | All Structural messages (STRUCT_HANDSHAKE, SNAPSHOT, FIND, ACT, …) |
 
-Structural MUST NOT use Graphical’s unreliable `pointer` channel for tree ops.
+Profile: `vroom-structural/1`. Surfaces are `app:<id>` and `window:<n>`. Leases, guards and settling are [Session's](./VROOM-Session.md).
 
 ```mermaid
 sequenceDiagram
@@ -184,9 +181,9 @@ sequenceDiagram
 
 ---
 
-## Message types (`omux/structural`)
+## Message types
 
-Encoding: **CBOR preferred**, JSON accepted (negotiated in STRUCT_HANDSHAKE), same policy as Graphical/Terminal.
+Encoding is selected in [SESSION_WELCOME](./VROOM-Session.md#21-session_hello-and-session_welcome). `0xA1`–`0xA6` are also used, with these bodies, by [Browsable](./VROOM-Browsable.md).
 
 | Code | Name | Dir | Body |
 |------|------|-----|------|
@@ -195,11 +192,9 @@ Encoding: **CBOR preferred**, JSON accepted (negotiated in STRUCT_HANDSHAKE), sa
 | `0xA2` | SNAPSHOT | S→C | nodes[], root_ids[], rev, truncated? |
 | `0xA3` | FIND | C→S | query |
 | `0xA4` | FIND_RESULT | S→C | ids[], nodes? |
-| `0xA5` | ACT | C→S | id \| bounds, action, args |
-| `0xA6` | ACT_RESULT | S→C | ok, rung, error? |
+| `0xA5` | ACT | C→S | id \| bounds, action, args, guard?, wait? |
+| `0xA6` | ACT_RESULT | S→C | [Act result](./VROOM-Session.md#7-the-act-result) |
 | `0xA7` | EVENT | S→C | focus/value/structure deltas |
-| `0xA8` | PIXEL_NEED | S→C | reason, region, capture_id |
-| `0xA9` | PIXEL_RESULT | C→S or S→C | capture_id, hint or click |
 | `0xAF` | ERROR | Both | code, message, detail? |
 
 ### STRUCT_HANDSHAKE (`0xA0`)
@@ -208,17 +203,15 @@ Encoding: **CBOR preferred**, JSON accepted (negotiated in STRUCT_HANDSHAKE), sa
 {
   "protocol": "vroom-structural",
   "version": "0.1.0",
-  "control_encoding": "cbor",
   "platforms": ["macos"],
   "adapters": ["ax"],
-  "pixel_fallback": true,
   "max_snapshot_bytes": 1048576,
   "roles": ["button", "textbox", "..."],
   "actions": ["click", "set_value", "..."]
 }
 ```
 
-Server response MUST echo negotiated caps. `platforms` / `adapters` are informational (one host, one primary adapter). Browser sessions advertise `adapters: ["cdp"]` (optionally alongside an OS adapter if the host also exposes desktop a11y). Client may set `pixel_fallback: false` to forbid rung 3.
+Server response MUST echo negotiated caps. `platforms` / `adapters` are informational (one host, one primary adapter).
 
 ### SNAPSHOT_REQ (`0xA1`) / SNAPSHOT (`0xA2`)
 
@@ -254,7 +247,9 @@ See query language. FIND_RESULT MAY inline matching nodes or only ids (client th
   "request_id": "r1",
   "target": { "id": "n_8f3a" },
   "action": "click",
-  "args": {}
+  "args": {},
+  "guard": { "if_rev": 42, "scope": "node" },
+  "wait": { "until": "settled", "quiet_ms": 150, "timeout_ms": 5000 }
 }
 ```
 
@@ -268,24 +263,11 @@ Or degraded:
 }
 ```
 
-```json
-{
-  "request_id": "r1",
-  "ok": true,
-  "rung": "tree",
-  "rev": 43
-}
-```
-
-`rung`: `"tree"` \| `"hybrid"` \| `"pixel"` \| `"none"`.
+ACT_RESULT is [Session's act result](./VROOM-Session.md#7-the-act-result).
 
 ### EVENT (`0xA7`)
 
 Optional push updates: focus changes, value changes, subtree invalidate. Clients MAY ignore and re-SNAPSHOT.
-
-### PIXEL_NEED / PIXEL_RESULT (`0xA8` / `0xA9`)
-
-Used when `pixel_fallback` is on and tree/hybrid cannot complete an ACT (or client requested a capture). Host MAY run vision locally and only emit ACT_RESULT; PIXEL_* is for split brain (model on client).
 
 ---
 
@@ -293,10 +275,9 @@ Used when `pixel_fallback` is on and tree/hybrid cannot complete an ACT (or clie
 
 | Platform | Native API | Notes |
 |----------|------------|-------|
-| macOS | Accessibility (`AXUIElement`) + ScreenCapture/Peekaboo | First reference adapter; align with fox aqua |
+| macOS | Accessibility (`AXUIElement`) | First reference adapter |
 | Windows | UI Automation (UIA) | Prefer UIA over MSAA |
 | Linux | AT-SPI2 | Best-effort; declare weak coverage in handshake |
-| Browser | CDP (`Accessibility.getFullAXTree` + DOM bounds) | Same IR — not a separate VROOM-Browser protocol |
 
 Adapters MUST:
 
@@ -305,26 +286,7 @@ Adapters MUST:
 3. Implement the resolution ladder
 4. Never require the agent to send native identifiers
 
-Adapters SHOULD expose `canvas` / `web` roles when the subtree is opaque so agents know to expect pixel fallback.
-
-### Browser / CDP adapter
-
-CDP is **another host adapter**, not a second agent dialect. Handshake MAY advertise `adapters: ["cdp"]` and `platforms: ["browser"]` (or the embedding OS plus browser).
-
-Map, in order of preference:
-
-1. CDP Accessibility tree (`Accessibility.getFullAXTree`) → IR roles/states/names
-2. DOM fallback for bounds (`DOM.getBoxModel` / `getContentQuads`) when AX bounds are missing
-3. Pixel rung for `canvas` / WebGL / empty AX
-
-Hosts SHOULD:
-
-- Flatten or nest iframes/shadow roots explicitly (`attrs.frame_id`, `attrs.shadow` as IR attrs — still no raw CDP ids in required fields)
-- Treat SPA virtualization as stale-tree: emit EVENT or bump `rev` and let clients re-SNAPSHOT
-- Keep CSS selectors / `backendNodeId` in the optional `native` debug bag only when `debug: true`
-
-Agents MUST NOT be required to speak CDP, CSS, or XPath to use Structural against a browser.
-
+Adapters SHOULD expose `canvas` / `web` roles when the subtree is opaque so agents know to use pixels, or Browsable for a browser's content.
 
 ---
 
@@ -333,9 +295,9 @@ Agents MUST NOT be required to speak CDP, CSS, or XPath to use Structural agains
 | Concern | Graphical | Structural |
 |---------|-----------|------------|
 | Human watch / voice | Yes | No (unless co-session) |
-| Agent click-by-name | Via COMMAND prose | First-class FIND/ACT |
-| Coordinates | Pointer stream | Last resort |
-| Video required | Typical | Optional |
+| Agent click-by-name | No | First-class FIND/ACT |
+| Coordinates | Primary | Last resort |
+| Video required | For humans only | No |
 
 A session MAY open both. Structural acts SHOULD update the same desktop Graphical is streaming.
 
@@ -352,36 +314,17 @@ A session MAY open both. Structural acts SHOULD update the same desktop Graphica
 
 ---
 
-## Reference implementation recommendations
+## Implementation notes
 
-### Server (`vroomd` Structural module)
-
-- Same daemon family as Graphical/Terminal
-- macOS: Peekaboo / AX bridge (fox aqua patterns)
-- Windows: FlaUI or UIAutomationCore
-- Linux: pyatspi / at-spi2
-- CBOR via shared `vroom-protocol` codec
-
-### Clients
-
-- Agent runtimes (tool calls → STRUCT messages)
-- Optional human debugger UI that renders the IR tree beside Graphical video
-
-### Suggested build phases
-
-1. Spec freeze (this document) + IR role/action enums
-2. macOS adapter + SNAPSHOT/FIND/ACT happy path
-3. Pixel fallback hook
-4. Windows UIA adapter
-5. Browser CDP adapter (same IR)
-6. Linux AT-SPI adapter
-7. EVENT streaming / diff snapshots
+- macOS: AX IPC is slow, one call per attribute unless batched, so hosts SHOULD batch attribute reads and cache subtrees, invalidating them from AX notifications.
+- Windows: UI Automation through a cache request.
+- Linux: AT-SPI2. Declare weak coverage in the handshake.
 
 ---
 
 ## Status
 
-Draft 0.1.0. Subject to change. Part of the VROOM protocol family on xumux.
+Draft 0.2.0. Subject to change. Part of the VROOM protocol family on xumux.
 
 ## License
 
