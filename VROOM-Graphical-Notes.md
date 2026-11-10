@@ -6,7 +6,7 @@ Date: 2026-11-10
 
 ## Evidence
 
-All tests ran on a single Apple M4 (10 cores) on macOS 15.7. These are short runs on one machine, so treat the numbers as rough. M1, encoder CPU use and power, and congestion on a network beyond localhost have not been tested.
+All tests ran on a single Apple M4 (10 cores) on macOS 15.7. These are short runs on one machine, so treat the numbers as rough. M1, encoder power, and congestion on an internet path with a real bottleneck have not been tested.
 
 **Clips.** Six lossless 1080p clips of 130 frames from the [AOM screen content test set](https://media.xiph.org/video/aomctc/test_set/b2_scc/), plus a synthetic clip for 4K results:
 
@@ -76,6 +76,16 @@ The network is modelled, and the adapter is vroomd's from before it changed its 
 
 Lag here runs from the page drawing to the viewer's canvas. The scaled limit had lower median lag and 4-7 times the frame rate on every link. The fixed limit lags too, since each frame waits a round trip to be acknowledged. The one worse result is the scaled limit's 99th percentile on the 1 s buffer. Each run had one keyframe, even with up to 323 frames dropped by the encoder, which matches the simulation's finding on forced keyframes. This ran on one M4 over localhost with synthetic content, alongside another host, and nothing here tests having no limit. The scripts and results are in [`deftai/vroom-lab`](https://github.com/deftai/vroom-lab) (`80_realnet.sh`).
 
+**Over an internet path.** The same comparison ran with host and viewer on this machine and the traffic going out to a relay on a MacBook and back over Tailscale, about 40 ms round trip, over WebSocket. WebTransport couldn't use the relay, because Tailscale's MTU of 1280 is smaller than Chromium's QUIC packets. There was no shaping, so whatever the path itself did applied. Each run started on a mostly idle machine, 4 runs each:
+
+| | Fixed limit of 2 | §3.3 scaled limit (4 frames here) |
+|---|---:|---:|
+| Lag p50 / p95 / p99 | 50 / 138 / 270.5 ms | 39 / 104 / 247.5 ms |
+| Frame rate | 25.5 fps | 39.2 fps |
+| Stalls over 100 ms per run | 27 | 22 |
+
+The scaled limit was better on every measure, as on localhost. This path had no bottleneck tighter than what the bitrate adapter settled on, so it doesn't test a congested internet path.
+
 
 ### 2. Making text crisp in the viewer (§1 goal 4, §3.3)
 
@@ -142,6 +152,20 @@ Means across the six clips. BD-rate is the bitrate change against H.264 at equal
 - PSNR doesn't capture how text looks, so these need a visual comparison too.
 
 **Reading:** the H.264 baseline holds up well, and hardware HEVC is the cheapest gain. Software AV1 saves bitrate at some settings, but with larger latency spikes. It's most useful for low-bitrate links and exact-match refinement.
+
+### Encoder CPU
+
+CPU time per source frame, on the capture clock: the encoder process plus VideoToolbox's encoder service, including the harness reading and converting frames. Medians, with each encode started on a mostly idle machine:
+
+| Encoder | 1080p (6 clips, 12 runs) | 4K60 synthetic (2 runs) |
+|---|---:|---:|
+| Hardware HEVC | 2.0 ms | 4.3 ms |
+| Hardware H.264 | 2.2 ms | 5.3 ms |
+| libaom speed 11 | 18 ms | 58 ms |
+| libaom speed 7 | 25 ms | 90 ms |
+| SVT-AV1 preset 8 | 38 ms | 178 ms |
+
+Software AV1 costs 8-40 times the CPU of hardware encoding. At 60 fps a whole core is 16.7 ms a frame, so at 4K60 software AV1 needs 3.5-11 cores' worth and couldn't keep up on this M4. Power wasn't measured.
 
 ### Per-clip results
 
@@ -221,7 +245,7 @@ VideoToolbox's output matched dav1d frame for frame on all tested AV1 streams, i
 
 ## Not yet tested
 
-- Encoder CPU use and power.
+- Encoder power. CPU time is under Codec results.
 - M1, M2, M3 and M5. Software decoders and encoders will be slower on older chips.
-- Scaled in-flight limits under congestion on a network beyond localhost. Issue 1 has a simulation and a shaped localhost path.
+- Scaled in-flight limits on an internet path with a real bottleneck. Issue 1 has a simulation, a shaped localhost path and an unshaped internet path.
 - Visual comparison of text quality.

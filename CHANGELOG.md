@@ -18,6 +18,7 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 - VROOM-Graphical review notes: non-normative open questions
 
 ### Changed
+- VROOM-Graphical review notes: encoder CPU per frame, and the in-flight limit over an internet path
 - VROOM-Graphical: frames bigger than one interval are sent whole, with captures dropped meanwhile and their delay not used to lower the bitrate
 - VROOM-Session: xumux limits are sized for the largest frame, not only keyframes, with suggested values from measurement
 - VROOM-Graphical 0.2: targets OS desktops; physical key input plus TEXT; surface-scoped logical coordinates; video channel on every xumux binding with drop-before-queue rules; separate cursor channel; agent screenshots and changed regions. Pointer gains sequence numbers, and scroll moves to the reliable channel. MODE replaced by the lease; COMMAND, NAVIGATE and PASTE removed
