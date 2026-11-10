@@ -22,6 +22,8 @@ VROOM-Structural is the **structured UI access** protocol in the VROOM family. A
 
 VROOM-Structural is an application protocol on [xumux](https://xumux.org). It MAY share one xumux connection with Graphical and/or Terminal.
 
+**Implementation note:** the Structural messages, in the encoding selected in SESSION_WELCOME (CBOR by default), are a **channel codec** on `vroom.structural.control`, decoded after demux. See [I/O stack](./docs/io-stack.md).
+
 ```mermaid
 flowchart TD
   agent[Agent]

@@ -14,6 +14,8 @@ VROOM-Graphical carries displays and windows as pixels, with OS-level input. One
 
 **Changes from 0.1:** the protocol now targets OS desktops, not a browser driven by Playwright. Browser commands moved to [Browsable](./VROOM-Browsable.md). See [Appendix A](#appendix-a-changes-from-01).
 
+**Implementation note:** each channel's payload format (structured messages, binary structs, encoded video and audio) is a **channel codec** on xumux, decoded after demux. WebRTC media tracks (§3.5) sit beside the mux. See [I/O stack](./docs/io-stack.md).
+
 ---
 
 ## 1. Goals

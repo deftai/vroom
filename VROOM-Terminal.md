@@ -12,6 +12,8 @@ All four types can run over the same xumux connection.
 
 > **Pending alignment with VROOM-Session.** This document predates it. Its own HELLO, authentication and TLV header overlap with SESSION_HELLO, xumux `auth` and the xumux frame Type, and will be aligned in its next revision.
 
+**Implementation note:** control TLV with CBOR or JSON bodies, and raw PTY bytes, are **channel codecs** on xumux, not mux-framer encodings. See [I/O stack](./docs/io-stack.md).
+
 ---
 
 ## Core Channel Types

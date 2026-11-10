@@ -10,6 +10,7 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 ### Added
 - VROOM-Session spec: the shared base (control lease, revisions and guards, settling, act result, surfaces and coordinates, error codes)
 - VROOM-Browsable spec: browsers as a fourth type (tabs, page tree, navigation, network and console events, storage, dialogs, tab video)
+- [docs/io-stack.md](./docs/io-stack.md): non-normative guide to running VROOM 0.2 channels on xumux 0.3, with per-channel codecs and presets; README and spec pointers
 - VROOM-Terminal spec (v0.2.0-draft) — terminal access protocol with PTY, Kitty keyboard/graphics, CBOR control plane, and capability negotiation
 - `control_encoding` negotiation field in both VROOM-Graphical and VROOM-Terminal handshakes — CBOR preferred, JSON accepted
 - HELLO bootstrap protocol for encoding negotiation (always JSON, selects encoding for subsequent messages)

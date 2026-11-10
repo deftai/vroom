@@ -14,6 +14,8 @@ A browser on a real desktop can also be reached through [Graphical](./VROOM-Grap
 
 **Profile:** `vroom-browsable/1`. Each tab is a surface with the ID `tab:<n>`, and its logical unit is the CSS pixel.
 
+**Implementation note:** each channel's payload format, including the formats shared with Graphical, is a **channel codec** on xumux, decoded after demux. See [I/O stack](./docs/io-stack.md).
+
 ---
 
 ## 1. Goals and non-goals

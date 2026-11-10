@@ -43,7 +43,15 @@ graph TB
 
 ## Implementation
 
-Implementation is under way in a separate repository, starting with Browsable. The specs here remain the source of truth.
+Implementation is under way in a separate repository, starting with Browsable. The specs here remain the source of truth. [docs/io-stack.md](./docs/io-stack.md) is a non-normative guide to how VROOM channels and their codecs sit on an xumux session.
+
+## Related projects
+
+| Project | Role |
+|---------|------|
+| [xumux](https://github.com/deftai/xumux) | Mux protocol: 8-byte framing, channels, transport bindings ([xumux.org](https://xumux.org)) |
+| [libxumux](https://github.com/deftai/libxumux) | TypeScript implementation of xumux |
+| [I/O stack](./docs/io-stack.md) | How VROOM channels and their **channel codecs** sit on an xumux session |
 
 ## Status
 

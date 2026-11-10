@@ -27,6 +27,8 @@ The client opens `vroom.session` in HELLO: reliable, ordered, profile `vroom-ses
 
 Structured messages use CBOR by default and JSON where negotiated. SESSION_HELLO and SESSION_WELCOME are always JSON. Hot-path messages are binary structs, defined by the type that uses them. All binary integers are big-endian.
 
+**Implementation note:** these encodings are **channel codecs**, decoded after xumux demux, never in the mux framer. See [I/O stack](./docs/io-stack.md).
+
 ---
 
 ## 2. Messages on `vroom.session`
