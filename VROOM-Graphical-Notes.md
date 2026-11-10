@@ -2,7 +2,7 @@
 
 **Not normative.** These are open questions about [VROOM-Graphical 0.2](./VROOM-Graphical.md), with test results, for discussion. Nothing here changes the protocol.
 
-Date: 2026-11-08
+Date: 2026-11-10
 
 ## Evidence
 
@@ -44,7 +44,27 @@ The RECOMMENDED limit is 2 unacknowledged frames, and FRAME_ACK is sent when a f
 
 Viewers hold frames for longer, so quality falls too: 42-43 dB against 48.5-49 dB on one clip at 100 ms RTT.
 
-**Suggestion:** scale the limit with measured RTT, or limit bytes in flight instead of frames. The scaled limit used here was `ceil(fps * (RTT + decode)) + 1`. It has not been tested under congestion, where a larger limit could build a queue, so test that before changing the spec.
+**Update:** §3.3 now uses `ceil(lowest_rtt × target_fps) + 1`, kept between 2 and a cap (16 is RECOMMENDED), counting only frames really sent.
+
+**Under congestion.** A simulation tested this rule against a fixed 2 and other rules. It used vroomd's sender and delay-based adapter, every frame through the M4's hardware H.264 encoder, and a modelled bottleneck with no transport congestion control, in virtual time. With the adapter running, at 100 ms RTT, on the 60 fps clip:
+
+| Rule | Normal link | Link cut from 20 to 4 Mbit/s for 30 s: fps | Lag p50 / p95 / worst |
+|---|---:|---:|---:|
+| Fixed limit of 2 | 16.6 fps | 13.3 | 140 / 297 / 571 ms |
+| §3.3, lowest RTT, cap 16 | 59.1 fps | 52.9 | 71 / 290 / 719 ms |
+| Current RTT instead of lowest | 59.1 fps | 52.7 | 71 / 539 / 799 ms |
+| No limit | 59.1 fps | 54.9 | 71 / 1081 / 1310 ms |
+
+Lag is the time from a screen change being captured until a frame at least that new is decoded.
+
+- **The scaled limit holds up, with the adapter.** It keeps about four times the frame rate of a fixed 2, with similar p95 lag. Using the current round trip nearly doubles p95 lag.
+- **It depends on adapting to delay.** With the adapter off, p95 lag in the same cut was 2214 ms for the scaled limit and 731 ms for a fixed 2. The limit alone bounds the queue only to its frame count times the frame size.
+- **The limit is still needed.** On a link held at 3 Mbit/s, p95 lag was 851 ms with it and 7536 ms without.
+- **Refreshing the lowest round trip lets a queue raise the limit.** vroomd resets it after 10 s, and during a long cut with the adapter off the limit rose from 8 to 16, taking worst lag from 1975 to 2811 ms. Never refreshing it is worse: after a real 80 ms rise in path length, frame rate fell from 58 to 33 fps.
+- **A keyframe after every encoder drop made congestion worse.** Each drop forced a keyframe, which was too big at the low bitrate, so the encoder dropped again. On a link held at 3 Mbit/s, median lag was 5037 ms with it and 73 ms without. vroomd has since stopped doing this. H.264 streams with 5-64 of 130 frames dropped by the encoder decoded with no errors and no keyframe, and reached 35-50 dB by their end.
+
+The network is modelled, and the adapter is vroomd's from before it changed its start bitrate and delay handling, so these show how the rules interact rather than real-network numbers. Limiting bytes instead was tried with one formula, and cost frame rate on a normal link (51 fps against 59).
+
 
 ### 2. Making text crisp in the viewer (§1 goal 4, §3.3)
 
@@ -53,7 +73,7 @@ Viewers hold frames for longer, so quality falls too: 42-43 dB against 48.5-49 d
 Results that bear on what's left:
 
 - **The 4:2:0 limit is large for colored text.** With no compression at all, a 4:2:0 round trip left the red channel of pink text on a dark background at 28.5 dB against the RGB original, compared with 57.7 dB for 4:4:4.
-- **Refinement can still improve the 4:2:0 picture.** Scored against the 4:2:0 source, not the RGB original, a bitrate ladder over 11 frames took hardware encoders from 37-51 dB to 61-70 dB luma. So §3.3's "refinement frames add little" may depend on the starting quality and on what it's measured against.
+- **Refinement improves the 4:2:0 picture, but not past the 4:2:0 limit.** Scored against the 4:2:0 source, a bitrate ladder over 11 frames took hardware encoders from 37-51 dB to 61-70 dB luma. vroomd's test of real pages scored against the RGB original, where the 4:2:0 limit is 30.9-33.2 dB: H.264 already reached it at about 4-5 Mbit/s, and refinement added little, as §3.3 says. Below about 4 Mbit/s it lifted PSNR 1.4-2.5 dB.
 - **How refinement is driven matters.** On VideoToolbox, raising `Quality` or forcing keyframes stalled at 30-47 dB, and capping QP stalled at 47-57 dB. Only raising the bitrate reached 60 dB and above.
 - **Only AV1 reached an exact match** with the 4:2:0 source: 72-693 KB in total, against 61-70 dB at similar sizes for H.264 and HEVC.
 - **4:4:4 has no hardware decode path found for AV1.** VideoToolbox rejects AV1 High profile (`-12910`). In WebCodecs, Chromium offers it in software only, and Firefox and Safari don't offer it.
@@ -83,9 +103,9 @@ The largest frame on the synthetic 4K clip was 593 KB (libaom, 4K30, 8 Mbit/s).
 
 ### 5. Recovery from FRAME_ACK (§3.3, §3.4)
 
-"Avoid keyframe spikes" mentions reference invalidation. FRAME_ACK already tells the sender which frames were decoded, so after a loss it could predict from an acknowledged frame rather than send a keyframe.
+"Avoid keyframe spikes" mentions reference invalidation. FRAME_ACK tells the sender which frames the receiver has finished with, so after a loss it could predict from an acknowledged frame rather than send a keyframe. But a receiver also acknowledges frames it discarded (§3.4), so an acknowledgement alone doesn't show that a frame can serve as a reference. This would need FRAME_ACK to say whether the frame was decoded.
 
-**Suggestion:** add an informative note, which needs no wire change. Encoder support for choosing references this way has not been checked.
+**Suggestion:** add a `decoded` flag to FRAME_ACK if this is pursued, then an informative note. Encoder support for choosing references this way has not been checked.
 
 ## Codec results
 

@@ -19,6 +19,14 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 ### Changed
 - VROOM-Graphical 0.2: targets OS desktops; physical key input plus TEXT; surface-scoped logical coordinates; video channel on every xumux binding with drop-before-queue rules; separate cursor channel; agent screenshots and changed regions. Pointer gains sequence numbers, and scroll moves to the reliable channel. MODE replaced by the lease; COMMAND, NAVIGATE and PASTE removed
 - VROOM-Structural 0.2: the browser CDP adapter moves to VROOM-Browsable; PIXEL_NEED and PIXEL_RESULT removed in favour of Graphical screenshots; ACT gains guards and settling
+- VROOM-Graphical: the limit on unacknowledged frames scales with the path's round trip, because a fixed limit capped the frame rate on long paths
+- VROOM-Graphical: the limit's inputs are defined, with a suggested cap of 16, and only frames really sent count towards it
+- VROOM-Graphical: video defaults to a reliable channel and VIDEO_SLICE becomes experimental, because slices did worse than QUIC's own recovery under packet loss
+- VROOM-Graphical: FRAME_ACK also covers discarded frames, and senders ignore delay caused by a keyframe's size
+- VROOM-Graphical: FRAME_ACK can carry the frame's delivery rate, and senders measure the path and hold a share against other traffic
+- VROOM-Graphical: receivers omit `rate_kbps` when a frame can't be timed, and senders that pace video pace at twice the target or faster, so the delivery rate still measures the path
+- VROOM-Graphical: STREAM_STATS has a defined baseline body, STREAM_STATE's `path` is absent for media tracks, and the frame limit's units are stated
+- VROOM-Graphical: RECEIVER_REPORT's fields are defined, and STREAM_START, STREAM_STATE and the control channel gain `path`, `stats`, VIDEO_CONFIG and STREAM_STATS
 - VROOM-Graphical: still video no longer has to reach effectively lossless, because 4:2:0 cannot carry it; refinement frames become optional
 - All channels move from `omux/*` to `vroom.<type>.*`, on xumux 0.3
 - Renamed existing VROOM spec to VROOM-Graphical (graphical/desktop access protocol)
