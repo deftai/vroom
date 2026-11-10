@@ -167,7 +167,7 @@ Browsable's video and input are byte-for-byte Graphical's formats, so one codec 
 
 ### 4. Presets
 
-A preset is a constructor over an xumux session that has completed its handshake. These names are suggestions, and implementations MAY differ.
+The session preset configures xumux HELLO before it is sent: `application`, `auth`, and the request to open `vroom.session`. The other presets are constructors over an xumux session that has completed its handshake, once SESSION_WELCOME has arrived. These names are suggestions, and implementations MAY differ.
 
 | Preset | Opens | Requested delivery | Negotiation | Policy hooks |
 |---|---|---|---|---|
@@ -177,7 +177,7 @@ A preset is a constructor over an xumux session that has completed its handshake
 | `defineVroomStructural` | `vroom.structural.control` | Reliable, ordered | Encoding from SESSION_WELCOME; STRUCT_HANDSHAKE caps | Lease check on ACT; snapshot size limit |
 | `defineVroomBrowsable` | `control` first; `events` for network and console events; `pointer` and `input` to act; `video.<tab>`, `feedback` and `audio.<tab>` for viewers | As in the codec table | Encoding from SESSION_WELCOME; BROWSE_HELLO capabilities | Lease check on actions; origin policy; `evaluate` and `selectors` gates |
 
-All presets except the session preset depend on `defineVroomSession` having seen SESSION_WELCOME. Presets do **not** replace xumux HELLO and WELCOME. They decide which application channels to request, which codec sits on each, and which thin hooks wrap control.
+Presets do **not** replace xumux HELLO and WELCOME. They decide which application channels to request, which codec sits on each, and which thin hooks wrap control.
 
 Graphical says "channels open when needed": a watching client opens no input channels, and an agent without a viewer opens no video ([Graphical §2](../VROOM-Graphical.md#2-channels)). Which side opens each channel is stated only for video. For the other channels this guide assumes the client opens them, which is a guess the specs do not confirm.
 
