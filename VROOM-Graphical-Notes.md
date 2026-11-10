@@ -84,7 +84,7 @@ Lag here runs from the page drawing to the viewer's canvas. The scaled limit had
 | Frame rate | 25.5 fps | 39.2 fps |
 | Stalls over 100 ms per run | 27 | 22 |
 
-The scaled limit was better on every measure, as on localhost. This path had no bottleneck tighter than what the bitrate adapter settled on, so it doesn't test a congested internet path.
+The scaled limit was better on every measure on this path. On localhost it was too, except the 99th percentile with a 1 s buffer. This path had no bottleneck tighter than what the bitrate adapter settled on, so it doesn't test a congested internet path.
 
 
 ### 2. Making text crisp in the viewer (§1 goal 4, §3.3)
