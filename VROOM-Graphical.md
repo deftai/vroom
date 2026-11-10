@@ -38,7 +38,7 @@ Latency is the product, so these rules are normative:
 | `vroom.graphical.pointer` | Unreliable, unordered | C→S | Pointer movement |
 | `vroom.graphical.input` | Reliable, ordered | C→S | Buttons, scroll, keys, text, touch |
 | `vroom.graphical.agent` | Reliable, ordered | Both | [Agent access](#5-agent-access) |
-| `vroom.graphical.audio.<id>` | Unreliable, unordered, where available | Both | Audio |
+| `vroom.graphical.audio.<id>` | Unreliable, unordered, where available, for `"timely"` audio; reliable, ordered for `"complete"` ([§9](#9-profiles)) | Both | Audio |
 
 Channels open when needed: a watching client opens no input channels, and an agent without a viewer opens no video.
 
@@ -59,6 +59,7 @@ On `vroom.graphical.control`:
 | `0x03` | STREAM_STATE | S→C | `surface`, `codec`, `fps`, `bitrate`, `source`, `encoder`, `path?` (`"reliable"` or `"datagram"`; absent when `source` is `"track"`, which has no video channel, §3.5), `profile` |
 | `0x04` | VIDEO_CONFIG | S→C | As in §3.2, with `surface`, on the datagram path, where the video channel could lose it |
 | `0x05` | STREAM_STATS | S→C | A performance record (§3.4), about once a second, only if STREAM_START asked |
+| `0x06` | PROFILE | Both | C→S: `profile`, `audio_delivery?` ([§9](#9-profiles)), without starting video. S→C: the `profile` and `audio_delivery` in use, in answer |
 
 The host opens `vroom.graphical.video.<surface>` after STREAM_START. H.264 is the baseline, and every host and client MUST support it. Clients discover decoders at run time, with `VideoDecoder.isConfigSupported()` in browsers.
 
@@ -198,12 +199,12 @@ On `vroom.graphical.agent`. The agent needs no video or decoder, and each answer
 | `0x06` | ACT_RESULT | S→C | [Act result](./VROOM-Session.md#7-the-act-result), `rung: "pixel"` |
 
 - **`if_newer_than`** avoids sending an image the agent already has: the host answers `unchanged: true` if the surface has not changed since that revision.
-- **`patches_since`** asks for only what changed since a revision the agent has a picture of. The host answers with `patches`, each `{x, y, w, h, width, height, data}` in logical units, which don't overlap and cover every change, so laying them over that picture gives the new one exactly. A host MAY send the whole picture instead, as when much of the surface changed or it no longer knows what changed, and MUST then send `data` and no `patches`. Patches can't be combined with `region` or `max_edge`.
-- **`tile`** is the patch grid in frame pixels. Smaller tiles send less unchanged area, and larger ones fewer, better-compressed images. A host spots changes on some grid of its own, and SHOULD round a requested size up to a multiple of it, since coarser tiles can be made exactly from finer ones and finer ones can't be known. Hosts SHOULD allow tiles up to 512 pixels. It says the size it used.
+- **`patches_since`** asks for only what changed since a revision the agent has a picture of. The host answers with `patches`, each `{x, y, w, h, width, height, data}` in logical units, which don't overlap and cover every change. Laying them over that picture gives the new one exactly only if both are lossless (`lossless: true`): a lossy base or lossy patches each keep their own compression errors, so a client that needs exact pixels SHOULD ask for a lossless format. A host MAY send the whole picture instead, as when much of the surface changed or it no longer knows what changed, and MUST then send `data` and no `patches`. Patches can't be combined with `region` or `max_edge`.
+- **`tile`** is the patch grid in frame pixels, while patch positions are in logical units, related by `scale`. Smaller tiles send less unchanged area, and larger ones fewer, better-compressed images. A host spots changes on some grid of its own, and SHOULD round a requested size up to a multiple of it, since coarser tiles can be made exactly from finer ones and finer ones can't be known. Hosts SHOULD allow tiles up to 512 pixels. It says the size it used.
 - **`changed_since`** lists the regions changed since the given `rev`, so an agent can request crops and not spend tokens on whole screens.
 - **Actions:** `click`, `double_click`, `right_click`, `move`, `drag` (`to`), `scroll` (`dx`, `dy`), `key` (a chord such as `"Meta+S"`), and `text`.
 - **`at`** is `{x, y}` in logical units. Agents working from an image convert it using `origin` and `scale`.
-- **Formats:** `png` and `webp` without `quality` are lossless, and hosts MUST keep them lossless. Lossy formats cost text: in one test JPEG at quality 80 lost up to 18% of words to OCR, and lossy WebP up to 11%. Lossless WebP is much smaller on text: in one test on rendered 1440x900 screens it was 4-14 times smaller than PNG at fast settings, for 20-45 ms of encoding, but it was slow on photographic content (0.2-0.6 s) for little gain. A host SHOULD cap the effort it spends, and MAY take `budget_ms` as the most a client will wait for a smaller file. 0 asks for the fastest encoding. Model APIs charge for images by their dimensions, not their size in bytes, so `max_edge`, `region` and `if_newer_than` usually save more than the format.
+- **Formats:** `png` and `webp` without `quality` are lossless, and hosts MUST keep them lossless. Lossless describes the encoding: with `max_edge`, the scaled image is kept exactly, not the screen's own pixels. Lossy formats cost text: in one test JPEG at quality 80 lost up to 18% of words to OCR, and lossy WebP up to 11%. Lossless WebP is much smaller on text: in one test on rendered 1440x900 screens it was 4-14 times smaller than PNG at fast settings, for 20-45 ms of encoding, but it was slow on photographic content (0.2-0.6 s) for little gain. A host SHOULD cap the effort it spends, and MAY take `budget_ms` as the most a client will wait for a smaller file. 0 asks for the fastest encoding. Model APIs charge for images by their dimensions, not their size in bytes, so `max_edge`, `region` and `if_newer_than` usually save more than the format.
 - Hosts SHOULD keep the latest frame for each surface in use, without copying it until asked.
 
 ---
@@ -250,19 +251,19 @@ People and agents want different things from the same stream. A person controlli
 | 3 | Smooth video | Smooth video |
 | 4 | Image quality | Audio for speech recognition |
 
-A client chooses with `profile` in STREAM_START, and MAY override any setting the profile implies. The default is `interactive` for a client of kind `"human"` and `fidelity` for `"agent"` ([Session §2](./VROOM-Session.md#2-messages-on-vroomsession)), but the choice is about the task, not the client: a person reading code may want `fidelity`, and an agent playing a game `interactive`. The host reports what it chose in STREAM_STATE, and MUST NOT fail a request for a profile it doesn't support, only report the one it used.
+A client chooses with `profile` in STREAM_START, or with PROFILE on the control channel, which starts no video, for a client that only takes screenshots, acts or listens. It MAY override the settings that have their own fields: `max_fps`, `max_bitrate` and `path` in STREAM_START, `format`, `quality` and `budget_ms` in SCREENSHOT_REQ, and `audio_delivery` in PROFILE. The default is `interactive` for a client of kind `"human"` and `fidelity` for `"agent"` ([Session §2](./VROOM-Session.md#2-messages-on-vroomsession)), but the choice is about the task, not the client: a person reading code may want `fidelity`, and an agent playing a game `interactive`. The host reports what it chose in STREAM_STATE, or in its PROFILE answer, and MUST NOT fail a request for a profile it doesn't support, only report the one it used.
 
 | Setting | `interactive` | `fidelity` |
 |---|---|---|
 | Input | As soon as possible: pointer moves coalesced, the cursor drawn by the viewer | Through ACT with guards and settling ([§5](#5-agent-access)), each with a result |
 | Under congestion | Keep the frame rate, and give up resolution and quality first | Keep quality, and give up frame rate first |
-| Frames in flight | Few, for low latency | More, since some delay is acceptable |
-| Encoder | Low-latency rate control | A floor on quality, and refinement at rest where it helps |
+| Frames in flight | §3.3's limit | §3.3's limit. More would only queue: in one simulation of a congested link, removing the limit raised frame rate from 53 to 55 fps and the 95th percentile of lag from 290 to 1081 ms |
+| Encoder | Low-latency rate control | A minimum bitrate, giving up frame rate first. Exact pixels come from screenshots, since video refinement can't pass the 4:2:0 limit (§3.3) |
 | Exact pixels | Rarely | Lossless screenshots ([§5](#5-agent-access)), with video for knowing when to take them |
 | Audio `delivery` | `"timely"`: unreliable channel, Opus in-band FEC, the receiver conceals losses | `"complete"`: reliable channel, the receiver MUST NOT conceal |
 | Audio format | 48 kHz, as the source has it | 16 kHz mono is enough for most speech recognition |
 
-**Audio is where the two differ most.** For a person, a gap is worse than a guess. A receiver SHOULD conceal lost packets (Opus decoders do this when told a packet is missing, and in-band FEC recovers single losses from the next packet), and SHOULD use a jitter buffer that adapts to the path. Unlike video, audio packets don't depend on those before them, so an unreliable channel suits audio even where it didn't suit video ([§3.2](#32-messages-on-the-video-channel)). For speech recognition, a guess is worse than a gap: concealment invents sound, which can become words that weren't said. A `"complete"` receiver MUST NOT conceal, and MUST mark any gap it can't fill.
+**Audio is where the two differ most.** For a person, a gap is worse than a guess. A receiver SHOULD conceal lost packets (Opus decoders do this when told a packet is missing, and in-band FEC recovers single losses from the next packet), and SHOULD use a jitter buffer that adapts to the path. Unlike a video frame, an audio packet can be decoded without the ones before it, so an unreliable channel suits audio even where it didn't suit video ([§3.2](#32-messages-on-the-video-channel)). For speech recognition, a guess is worse than a gap: concealment invents sound, which can become words that weren't said. A `"complete"` receiver MUST NOT conceal, and MUST mark any gap it can't fill.
 
 ---
 
