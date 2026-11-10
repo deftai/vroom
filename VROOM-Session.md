@@ -18,7 +18,7 @@ VROOM runs on [xumux](https://xumux.org) 0.3 and sits at its application layer, 
 - Each channel is named `vroom.<type>.<purpose>` and declares `metadata.profile`, for example `"vroom-browsable/1"`. A host that does not offer a profile rejects the channel with `4010`.
 - The xumux frame **Type** is the VROOM message type, and each channel has its own type space.
 - Implementations MUST read each channel's **effective** properties from CHANNEL_ACK or WELCOME, and MUST NOT assume a channel is unreliable because they asked for that. On single-stream transports every channel is reliable and ordered.
-- Hosts declare xumux limits large enough for their largest message. A video host needs `maxMessageSize` larger than its largest keyframe, and `initialWindow` must be at least that value.
+- Hosts declare xumux limits large enough for their largest message. A video host needs `maxMessageSize` larger than its largest frame at its highest bitrate, which isn't always a keyframe, and `initialWindow` must be at least that value. Twice the largest frame is a reasonable margin. In one test at 12 Mbit/s with hardware H.264 and HEVC on an Apple M4, the largest frames were 190-273 KiB at 1080p and 813-820 KiB at 4K, where the largest was a delta frame about three times the first keyframe, so 512 KiB and 2 MiB. These are measurements from one encoder family, not limits for all.
 - Input and session channels MUST take priority over video and bulk data on a shared path. This is local scheduling and needs no wire change.
 
 ### 1.1 Channels and encoding

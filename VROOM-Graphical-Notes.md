@@ -97,7 +97,7 @@ Senders SHOULD spread each frame's bytes over the frame interval, but some frame
 
 **Suggestion:** say how pacing and frame dropping behave when a frame exceeds one interval's budget. Intra refresh (already a SHOULD) reduces how often this happens, but the first frame still needs a rule.
 
-**Update:** pacing is now optional (MAY), and a sender that paces SHOULD pace at twice its bitrate target or faster, so that `rate_kbps` can still measure the path. At twice a 3 Mbit/s target, the largest frames above still take about 0.1-0.3 s, so a rule for oversized frames is still open.
+**Update:** pacing is now optional (MAY), and a sender that paces SHOULD pace at twice its bitrate target or faster, so that `rate_kbps` can still measure the path. At twice a 3 Mbit/s target, the largest frames above still take about 0.1-0.3 s. §3.3 now says such a frame is sent whole, captures keep being dropped before encoding while it goes, and its delay isn't used to lower the bitrate.
 
 ### 4. Suggested values for keyframe-sized limits (§3.3, [Session §1](./VROOM-Session.md))
 
@@ -113,6 +113,8 @@ Senders SHOULD spread each frame's bytes over the frame interval, but some frame
 The largest frame on the synthetic 4K clip was 593 KB (libaom, 4K30, 8 Mbit/s).
 
 **Suggestion:** publish suggested values per resolution, with margin.
+
+**Update:** measured again at 12 Mbit/s, vroomd's default maximum, with hardware H.264 and HEVC: the largest frames were 190-273 KiB at 1080p (always the first keyframe) and 813-820 KiB on the synthetic 4K clip, where the largest was a delta frame about three times the first keyframe. [Session §1](./VROOM-Session.md) now suggests twice the largest frame at the host's highest bitrate, about 512 KiB at 1080p and 2 MiB at 4K, and sizes for the largest frame rather than only keyframes. Other encoders and chips aren't measured.
 
 ### 5. Recovery from FRAME_ACK (§3.3, §3.4)
 
