@@ -186,11 +186,13 @@ Shapes travel reliably, on `vroom.graphical.control`: `0x10` CURSOR_SHAPE, CBOR 
 
 On `vroom.graphical.control`: `0x20` CLIPBOARD_OFFER, `{id, types}`, and `0x21` CLIPBOARD_GET, `{id, type}`, answered by `0x22` CLIPBOARD_DATA, `{id, type, data}`, sent in either direction. Only offers travel eagerly, so large content moves only on demand, and a client can decide whether it wants the content at all. A client MUST opt in, and a host SHOULD let its owner disable clipboard sync.
 
+Agents that need to set the clipboard in step with their actions use the `clipboard` action (§5) instead. A client opts in with `0x23` CLIPBOARD_SYNC, `{on}`, and opts out by sending it with `on: false`. Until a client opts in, the host sends it no offers and answers its CLIPBOARD_GET and CLIPBOARD_OFFER with `4603`. On opting in, the host SHOULD offer what its clipboard holds at that moment, so a client can read it without waiting for a change. The host answers CLIPBOARD_SYNC with CLIPBOARD_SYNC, `{on}`, giving the state now in force, and the opt-in lasts for the connection. A host that has disabled clipboard sync answers with `4603`, and one without clipboard support with `4605`.
+
 ---
 
 ## 5. Agent access
 
-On `vroom.graphical.agent`. The agent needs no video or decoder, and each answer is available at once from the latest captured frame. All actions take a `request_id`, and `guard` and `wait` as in [Session](./VROOM-Session.md#5-revisions-and-guards).
+On `vroom.graphical.agent`. The agent needs no video or decoder, and each answer is available at once from the latest captured frame. Every request on this channel carries a `request_id`, which the host echoes in its answer and in any ERROR, so answers can be matched to requests even when they finish out of order. Actions also take `guard` and `wait` as in [Session](./VROOM-Session.md#5-revisions-and-guards).
 
 | Type | Name | Dir | Body |
 |---|---|---|---|
@@ -198,15 +200,20 @@ On `vroom.graphical.agent`. The agent needs no video or decoder, and each answer
 | `0x02` | SCREENSHOT | S→C | `rev`, `origin`, `scale`, `format`, `lossless`, then `data` and `changed_since?`, or `since`, `tile` and `patches`, or `unchanged: true` |
 | `0x03` | CHANGES_REQ | C→S | `surface`, `since_rev` |
 | `0x04` | CHANGES | S→C | `rev`, `regions` |
-| `0x05` | ACT | C→S | `action`, `at`, `surface`, `args`, `guard?`, `wait?` |
+| `0x05` | ACT | C→S | `action`, `at?`, `surface`, `args`, `guard?`, `wait?` |
 | `0x06` | ACT_RESULT | S→C | [Act result](./VROOM-Session.md#7-the-act-result), `rung: "pixel"` |
+| `0x07` | READ_TEXT_REQ | C→S | `surface`, `region?`, `level?` (`"accurate"`, the default, or `"fast"`) |
+| `0x08` | READ_TEXT | S→C | `rev`, `lines`: `[{text, confidence?, x, y, w, h}]` |
 
 - **`if_newer_than`** avoids sending an image the agent already has: the host answers `unchanged: true` if the surface has not changed since that revision.
 - **`patches_since`** asks for only what changed since a revision the agent has a picture of. The host answers with `patches`, each `{x, y, w, h, width, height, data}` in logical units, which don't overlap and cover every change. Laying them over that picture gives the new one exactly only if both are lossless (`lossless: true`): a lossy base or lossy patches each keep their own compression errors, so a client that needs exact pixels SHOULD ask for a lossless format. A host MAY send the whole picture instead, as when much of the surface changed or it no longer knows what changed, and MUST then send `data` and no `patches`. Patches can't be combined with `region` or `max_edge`, and the picture at the given revision MUST be one the client holds whole and unscaled: of the whole surface, without `region` or `max_edge`. Patches can't restore area outside a crop or detail lost to scaling. If the surface's size or `scale` changed since that revision, the host MUST send the whole picture.
 - **`tile`** is the patch grid in frame pixels, while patch positions are in logical units, related by `scale`. Smaller tiles send less unchanged area, and larger ones fewer, better-compressed images. A host spots changes on some grid of its own, and SHOULD round a requested size up to a multiple of it, since coarser tiles can be made exactly from finer ones and finer ones can't be known. Hosts SHOULD allow tiles up to 512 pixels. It says the size it used.
 - **`changed_since`** lists the regions changed since the given `rev`, so an agent can request crops and not spend tokens on whole screens.
-- **Actions:** `click`, `double_click`, `right_click`, `move`, `drag` (`to`), `scroll` (`dx`, `dy`), `key` (a chord such as `"Meta+S"`), and `text`.
-- **`at`** is `{x, y}` in logical units. Agents working from an image convert it using `origin` and `scale`.
+- **Actions:** `click`, `double_click`, `right_click`, `move`, `drag` (`to`), `scroll` (`dx`, `dy`), `key` (a chord such as `"Meta+S"`), `text`, `clipboard`, and `open`. In the `text` action, `\n`, `\r\n` and `\r` each press Return once and `\t` presses Tab, so multi-line text arrives as it would be typed; a literal tab character can't be typed this way. The input channel's TEXT (`0x15`) is unchanged and sends characters as they are.
+- **`clipboard`** puts `args.text` on the host's clipboard. Unlike §4.4's offers, which travel on the control channel, it is ordered with the actions around it and has a result, so an agent that sets the clipboard and then pastes gets what it set. It needs control.
+- **`open`** opens an application (`args.app`, a name or platform identifier), a URL (`args.url`) or a file (`args.path`) on the host, as its user would, which usually brings it to the front. It takes no `at`. It needs control like any action, and hosts SHOULD let their owner restrict or disable it ([Security](#8-security)): unlike input, it can start software the screen doesn't show.
+- **READ_TEXT** reads the text on a surface, or on `region` of it, from the latest frame, and answers the revision it read. Lines come in reading order, with boxes in logical units, and `confidence` from 0 to 1 where the recognizer gives one. Boxes are per line, so an agent can find a line and click within it without an image or a model call; a word's position inside a line is an estimate. `level` is a hint, and a host MAY use one level for both. It is OCR, not the accessibility tree: it sees what is drawn, including in canvases and remote sessions, and knows nothing of roles. For roles and names, use [VROOM-Structural](./VROOM-Structural.md). A `region` outside the surface is answered with `4602`, and a host that can't read text answers `4605`.
+- **`at`** is `{x, y}` in logical units, required by the coordinate actions. Agents working from an image convert it using `origin` and `scale`. `clipboard` and `open` take no `at`, so their guards default to `surface` scope, and a host refuses a `region` guard on them with `4605`.
 - **Formats:** `png` and `webp` without `quality` are lossless, and hosts MUST keep them lossless. Lossless describes the encoding: with `max_edge`, the scaled image is kept exactly, not the screen's own pixels. Lossy formats cost text: in one test JPEG at quality 80 lost up to 18% of words to OCR, and lossy WebP up to 11%. Lossless WebP is much smaller on text: in one test on rendered 1440x900 screens it was 4-14 times smaller than PNG at fast settings, for 20-45 ms of encoding, but it was slow on photographic content (0.2-0.6 s) for little gain. A host SHOULD cap the effort it spends, and MAY take `budget_ms` as the most a client will wait for a smaller file. 0 asks for the fastest encoding. Model APIs charge for images by their dimensions, not their size in bytes, so `max_edge`, `region` and `if_newer_than` usually save more than the format.
 - Hosts SHOULD keep the latest frame for each surface in use, without copying it until asked.
 
@@ -229,7 +236,7 @@ Voice interaction is a matter for the agent above this protocol: speech arrives 
 | Linux X11 | XShm, XDamage | XTest | |
 | Linux Wayland | PipeWire via the ScreenCast portal | RemoteDesktop portal, or compositor protocols | Declare limits on unattended access |
 
-Hosts MUST report what they cannot do, in SESSION_WELCOME capabilities or with `4606`, and MUST NOT fail silently. A capture that returns black because a permission is missing is a defect in the host.
+Hosts MUST report what they cannot do, in SESSION_WELCOME capabilities or with `4606`, and MUST NOT fail silently. A Graphical host lists `"read_text"` and `"open"` when it supports them, and `"clipboard"` when it offers clipboard sync. A capture that returns black because a permission is missing is a defect in the host.
 
 ---
 
@@ -281,7 +288,7 @@ A client chooses with `profile` in STREAM_START, or with PROFILE on the control 
 | JPEG video fallback | H.264 on every transport | Bandwidth and quality |
 | Video only as a WebRTC track | A video channel, with tracks as an option | Works on every xumux binding |
 | MODE | [Lease](./VROOM-Session.md#4-the-control-lease) | One model of who may act |
-| COMMAND, NAVIGATE, PASTE | Removed: see [Browsable](./VROOM-Browsable.md), [Structural](./VROOM-Structural.md), TEXT | Two ways to do the same thing |
+| COMMAND, NAVIGATE, PASTE | Removed: see [Browsable](./VROOM-Browsable.md), [Structural](./VROOM-Structural.md), input TEXT (`0x15`) | Two ways to do the same thing. The later `clipboard` action (§5) only sets the clipboard, ordered with other actions; pasting is a `key` chord |
 | Voice mode | Removed. Audio channels remain | A concern of the agent above the protocol |
 | STATE, NOTIFICATION, CHAT | AGENT_STATE and CHAT in Session; act results | Shared by every type |
 | CURSOR on the control channel | Cursor channel, shapes cached by ID | The cursor must not wait |
