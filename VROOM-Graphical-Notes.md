@@ -221,5 +221,5 @@ VideoToolbox's output matched dav1d frame for frame on all tested AV1 streams, i
 
 - Encoder CPU use and power.
 - M1, M2, M3 and M5. Software decoders and encoders will be slower on older chips.
-- Scaled in-flight limits under congestion.
+- Scaled in-flight limits under congestion on a network beyond localhost. Issue 1 has a simulation and a shaped localhost path.
 - Visual comparison of text quality.
