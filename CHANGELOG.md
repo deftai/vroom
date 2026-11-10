@@ -16,9 +16,10 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 - HELLO bootstrap protocol for encoding negotiation (always JSON, selects encoding for subsequent messages)
 - README landing page linking both companion protocol specs
 - VROOM-Graphical review notes: non-normative open questions
-- VROOM-Graphical: TEXT_REQ/TEXT (`0x07`/`0x08`), reading a surface's text with boxes; the `open` and `clipboard` actions; CLIPBOARD_SYNC (`0x23`), how a client opts in to the clipboard; in `text`, newlines and tabs press Return and Tab
+- VROOM-Graphical: READ_TEXT_REQ/READ_TEXT (`0x07`/`0x08`), reading a surface's text with line boxes; the `open` and `clipboard` actions; CLIPBOARD_SYNC (`0x23`), how a client opts in to the clipboard, answered with the state in force; capability names `read_text`, `open` and `clipboard`
 
 ### Changed
+- VROOM-Graphical: in the `text` action, newlines press Return and tabs press Tab; agent-channel answers and errors echo `request_id`
 - VROOM-Graphical: frames bigger than one interval are sent whole, with captures dropped meanwhile and their delay not used to lower the bitrate
 - VROOM-Session: xumux limits are sized for the largest frame, not only keyframes, with suggested values from measurement
 - VROOM-Graphical 0.2: targets OS desktops; physical key input plus TEXT; surface-scoped logical coordinates; video channel on every xumux binding with drop-before-queue rules; separate cursor channel; agent screenshots and changed regions. Pointer gains sequence numbers, and scroll moves to the reliable channel. MODE replaced by the lease; COMMAND, NAVIGATE and PASTE removed
