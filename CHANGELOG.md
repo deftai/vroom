@@ -18,6 +18,8 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 - VROOM-Graphical review notes: non-normative open questions
 
 ### Changed
+- VROOM-Graphical: frames bigger than one interval are sent whole, with captures dropped meanwhile and their delay not used to lower the bitrate
+- VROOM-Session: xumux limits are sized for the largest frame, not only keyframes, with suggested values from measurement
 - VROOM-Graphical 0.2: targets OS desktops; physical key input plus TEXT; surface-scoped logical coordinates; video channel on every xumux binding with drop-before-queue rules; separate cursor channel; agent screenshots and changed regions. Pointer gains sequence numbers, and scroll moves to the reliable channel. MODE replaced by the lease; COMMAND, NAVIGATE and PASTE removed
 - VROOM-Structural 0.2: the browser CDP adapter moves to VROOM-Browsable; PIXEL_NEED and PIXEL_RESULT removed in favour of Graphical screenshots; ACT gains guards and settling
 - VROOM-Graphical: the limit on unacknowledged frames scales with the path's round trip, because a fixed limit capped the frame rate on long paths
