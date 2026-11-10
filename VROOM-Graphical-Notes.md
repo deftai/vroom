@@ -6,7 +6,7 @@ Date: 2026-11-10
 
 ## Evidence
 
-All tests ran on a single Apple M4 (10 cores) on macOS 15.7. These are short runs on one machine, so treat the numbers as rough. M1, encoder power, and congestion on an internet path with a real bottleneck have not been tested.
+All tests ran on a single Apple M4 (10 cores) on macOS 15.7. These are short runs on one machine, so treat the numbers as rough. M1, encoder power, and congestion on internet paths other than the one in issue 1 have not been tested.
 
 **Clips.** Six lossless 1080p clips of 130 frames from the [AOM screen content test set](https://media.xiph.org/video/aomctc/test_set/b2_scc/), plus a synthetic clip for 4K results:
 
