@@ -6,7 +6,7 @@ Date: 2026-11-10
 
 ## Evidence
 
-All tests ran on a single Apple M4 (10 cores) on macOS 15.7. These are short runs on one machine, so treat the numbers as rough. M1, encoder CPU use and power, and real network congestion have not been tested.
+All tests ran on a single Apple M4 (10 cores) on macOS 15.7. These are short runs on one machine, so treat the numbers as rough. M1, encoder CPU use and power, and congestion on a network beyond localhost have not been tested.
 
 **Clips.** Six lossless 1080p clips of 130 frames from the [AOM screen content test set](https://media.xiph.org/video/aomctc/test_set/b2_scc/), plus a synthetic clip for 4K results:
 
@@ -64,6 +64,17 @@ Lag is the time from a screen change being captured until a frame at least that 
 - **A keyframe after every encoder drop made congestion worse.** Each drop forced a keyframe, which was too big at the low bitrate, so the encoder dropped again. On a link held at 3 Mbit/s, median lag was 5037 ms with it and 73 ms without. vroomd has since stopped doing this. H.264 streams with 5-64 of 130 frames dropped by the encoder decoded with no errors and no keyframe, and reached 35-50 dB by their end.
 
 The network is modelled, and the adapter is vroomd's from before it changed its start bitrate and delay handling, so these show how the rules interact rather than real-network numbers. Limiting bytes instead was tried with one formula, and cost frame rate on a normal link (51 fps against 59).
+
+**On a real host.** The current vroomd host and a headless Chromium viewer ran over WebTransport, through vroomd's benchmark proxy, which adds 50 ms of delay each way and a bottleneck towards the viewer. The source was vroomd's `synthetic-noisy` at about 3.5 Mbit/s, and each case ran 3 times for 20 s. The scaled limit here is 7 frames.
+
+| Link | Fixed limit of 2: lag p50 / p95 / p99, fps | §3.3 scaled limit: lag p50 / p95 / p99, fps |
+|---|---:|---:|
+| 20 Mbit/s | 108 / 125 / 130 ms, 14 fps | 75 / 81 / 88 ms, 56 fps |
+| 4 Mbit/s | 252 / 272 / 285 ms, 7 fps | 89 / 138 / 270 ms, 52 fps |
+| 4 Mbit/s with a competing download | 259 / 319 / 324 ms, 7 fps | 144 / 204 / 302 ms, 47 fps |
+| 3 Mbit/s with a 1 s buffer | 350 / 375 / 386 ms, 5 fps | 102 / 199 / 422 ms, 38 fps |
+
+Lag here runs from the page drawing to the viewer's canvas. The scaled limit had lower median lag and 4-7 times the frame rate on every link. The fixed limit lags too, since each frame waits a round trip to be acknowledged. The one worse result is the scaled limit's 99th percentile on the 1 s buffer. Each run had one keyframe, even with up to 323 frames dropped by the encoder, which matches the simulation's finding on forced keyframes. This ran on one M4 over localhost with synthetic content, alongside another host, and nothing here tests having no limit. The scripts and results are in [`deftai/vroom-lab`](https://github.com/deftai/vroom-lab) (`80_realnet.sh`).
 
 
 ### 2. Making text crisp in the viewer (§1 goal 4, §3.3)
