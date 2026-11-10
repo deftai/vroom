@@ -21,7 +21,7 @@ The RECOMMENDED limit is 2 unacknowledged frames, and FRAME_ACK is sent when a f
 
 **Suggestion:** scale the limit with measured RTT, or limit bytes in flight instead of frames, while keeping the goal of not queueing stale video.
 
-**Update:** §3.3 now scales the limit with the lowest measured round trip. This hasn't been tested on a congested long path, where more frames in flight could mean a longer queue. Limiting bytes instead remains an option.
+**Update:** §3.3 now scales the limit with the lowest measured round trip and the target frame rate, up to a suggested cap of 16. This hasn't been tested on a congested long path, where more frames in flight could mean a longer queue. Limiting bytes instead remains an option.
 
 ### 2. "Effectively lossless" may be unreachable in 4:2:0 (§1 goal 4, §3.3)
 
@@ -45,9 +45,9 @@ Senders SHOULD spread each frame's bytes over the frame interval, but some frame
 
 ### 5. Recovery from FRAME_ACK (§3.3, §3.4)
 
-"Avoid keyframe spikes" mentions reference invalidation. FRAME_ACK already tells the sender which frames were decoded, so after a loss it could predict from an acknowledged frame rather than send a keyframe.
+"Avoid keyframe spikes" mentions reference invalidation. FRAME_ACK tells the sender which frames the receiver has finished with, so after a loss it could predict from an acknowledged frame rather than send a keyframe. But a receiver also acknowledges frames it discarded (§3.4), so an acknowledgement alone doesn't show that a frame can serve as a reference. This would need FRAME_ACK to say whether the frame was decoded.
 
-**Suggestion:** add an informative note, which needs no wire change. Encoder support for choosing references this way has not been checked.
+**Suggestion:** add a `decoded` flag to FRAME_ACK if this is pursued, then an informative note. Encoder support for choosing references this way has not been checked.
 
 ## Not yet tested
 
