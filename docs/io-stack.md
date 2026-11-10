@@ -107,7 +107,7 @@ Channel 0 messages are JSON. That is **mux** control, not VROOM control. VROOM's
 A few xumux rules matter to VROOM in particular:
 
 - **Read effective properties.** Code must not assume a channel is unreliable because it asked for that ([Session §1](../VROOM-Session.md#1-on-xumux)). A preset should look the properties up in CHANNEL_ACK and adjust, for example by coalescing pointer moves when the channel is reliable ([Graphical §2](../VROOM-Graphical.md#2-channels)).
-- **Size the limits for video.** `maxMessageSize` must exceed the largest keyframe, and `initialWindow` must be at least `maxMessageSize`. So a full window can be seconds of video, and xumux credit cannot limit frames in flight. Graphical senders use FRAME_ACK for that ([Graphical §3.3](../VROOM-Graphical.md#33-sender-rules)).
+- **Size the limits for video.** `maxMessageSize` must exceed the largest frame at the highest bitrate, which isn't always a keyframe ([Session §1](../VROOM-Session.md)), and `initialWindow` must be at least `maxMessageSize`. So a full window can be seconds of video, and xumux credit cannot limit frames in flight. Graphical senders use FRAME_ACK for that ([Graphical §3.3](../VROOM-Graphical.md#33-sender-rules)).
 - **Fragmentation is for reliable, ordered channels only.** On other channels a message must fit in one frame, so a VIDEO_SLICE must fit the path's largest message.
 - **Schedule input first.** Input and session channels take priority over video and bulk data on a shared path. That is local scheduling, with no wire change. On the base path xumux suggests fragments of at most 16 KiB, interleaved fairly between channels.
 
