@@ -23,6 +23,9 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 - VROOM-Graphical: the limit's inputs are defined, with a suggested cap of 16, and only frames really sent count towards it
 - VROOM-Graphical: video defaults to a reliable channel and VIDEO_SLICE becomes experimental, because slices did worse than QUIC's own recovery under packet loss
 - VROOM-Graphical: FRAME_ACK also covers discarded frames, and senders ignore delay caused by a keyframe's size
+- VROOM-Graphical: draft profiles, `interactive` and `fidelity`, for people and agents, which set input, video and audio policy together; audio states whether it conceals losses
+- VROOM-Graphical: lossless screenshot formats are defined, with guidance on lossless WebP
+- VROOM-Graphical: PROFILE chooses a profile without starting video, the audio channel's delivery follows the profile, and screenshot patches are exact only when lossless
 - VROOM-Graphical: FRAME_ACK can carry the frame's delivery rate, and senders measure the path and hold a share against other traffic
 - VROOM-Graphical: receivers omit `rate_kbps` when a frame can't be timed, and senders that pace video pace at twice the target or faster, so the delivery rate still measures the path
 - VROOM-Graphical: STREAM_STATS has a defined baseline body, STREAM_STATE's `path` is absent for media tracks, and the frame limit's units are stated

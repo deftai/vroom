@@ -38,7 +38,7 @@ Latency is the product, so these rules are normative:
 | `vroom.graphical.pointer` | Unreliable, unordered | C→S | Pointer movement |
 | `vroom.graphical.input` | Reliable, ordered | C→S | Buttons, scroll, keys, text, touch |
 | `vroom.graphical.agent` | Reliable, ordered | Both | [Agent access](#5-agent-access) |
-| `vroom.graphical.audio.<id>` | Unreliable, unordered, where available | Both | Audio |
+| `vroom.graphical.audio.<id>` | Unreliable, unordered, where available, for `"timely"` audio; reliable, ordered for `"complete"` ([§9](#9-profiles)) | Both | Audio |
 
 Channels open when needed: a watching client opens no input channels, and an agent without a viewer opens no video.
 
@@ -54,11 +54,12 @@ On `vroom.graphical.control`:
 
 | Type | Name | Dir | Body |
 |---|---|---|---|
-| `0x01` | STREAM_START | C→S | `surface`, `codecs` (preference order, as WebCodecs codec strings), `max_fps?`, `max_bitrate?`, `max_edge?`, `include_cursor?`, `path?` (`"datagram"` asks for §3.2's experimental path), `stats?` (`true` asks for STREAM_STATS) |
+| `0x01` | STREAM_START | C→S | `surface`, `codecs` (preference order, as WebCodecs codec strings), `max_fps?`, `max_bitrate?`, `max_edge?`, `include_cursor?`, `path?` (`"datagram"` asks for §3.2's experimental path), `stats?` (`true` asks for STREAM_STATS), `profile?` ([§9](#9-profiles)) |
 | `0x02` | STREAM_STOP | C→S | `surface` |
-| `0x03` | STREAM_STATE | S→C | `surface`, `codec`, `fps`, `bitrate`, `source`, `encoder`, `path?` (`"reliable"` or `"datagram"`; absent when `source` is `"track"`, which has no video channel, §3.5) |
+| `0x03` | STREAM_STATE | S→C | `surface`, `codec`, `fps`, `bitrate`, `source`, `encoder`, `path?` (`"reliable"` or `"datagram"`; absent when `source` is `"track"`, which has no video channel, §3.5), `profile` |
 | `0x04` | VIDEO_CONFIG | S→C | As in §3.2, with `surface`, on the datagram path, where the video channel could lose it |
 | `0x05` | STREAM_STATS | S→C | A performance record (§3.4), about once a second, only if STREAM_START asked |
+| `0x06` | PROFILE | Both | C→S: `profile`, `audio_delivery?` ([§9](#9-profiles)), without starting video. S→C: the `profile` and `audio_delivery` in use, in answer |
 
 The host opens `vroom.graphical.video.<surface>` after STREAM_START. H.264 is the baseline, and every host and client MUST support it. Clients discover decoders at run time, with `VideoDecoder.isConfigSupported()` in browsers.
 
@@ -90,7 +91,7 @@ The host opens `vroom.graphical.video.<surface>` after STREAM_START. H.264 is th
 - **Drop before encoding.** An encoded delta cannot be dropped without breaking the frames after it, so a sender drops frames before the encoder, keeping only the newest captured frame while the encoder or the viewer is behind.
 - **Limit frames in flight.** A sender MUST limit how many frames it has sent that the receiver has not yet acknowledged with FRAME_ACK. A fixed limit caps the frame rate on a long path, so a sender SHOULD use `ceil(lowest_rtt × target_fps) + 1`, with `lowest_rtt` in seconds and `target_fps` in frames a second, kept between 2 and a cap (16 is RECOMMENDED). For example, 0.021 s at 60 fps gives 3. It SHOULD use the lowest round trip and not the current one, which includes any queue, so that a queue cannot raise its own limit. It SHOULD use the target frame rate and not the achieved one, which falls when the limit is too tight and would keep it there. It MUST count only frames it really sent: the encoder may drop a frame, nothing will ever acknowledge it, and counting it can stop the stream for good. In one test with acknowledgements delayed by 100 ms, a fixed limit of 2 reached 19 fps and this reached 60 fps. xumux credit cannot do this: `initialWindow` must be at least `maxMessageSize`, which must hold the largest keyframe, so a full window can be seconds of video.
 - **Stay well under the link's capacity.** A sender SHOULD keep video well below its estimated capacity. A sender MAY pace a frame's bytes so that it doesn't reach the bottleneck all at once, but SHOULD then pace at twice its bitrate target or faster: pacing at the target rate itself would hide spare capacity from `rate_kbps` (§3.4). Bytes already in flight queue at the bottleneck, where no priority can overtake them: in one test on a 50 Mbit/s link, input round trip was about 0.3 ms beside 20 Mbit/s of video, 10 ms beside 40 Mbit/s, and 80-340 ms beside a sender running flat out.
-- **Adapt to delay, not only loss.** A sender SHOULD use channel probes ([xumux §8.1](https://github.com/deftai/xumux/blob/main/spec/core.md#81-ping-0x10-and-pong-0x11)), which include send queues, along with receiver reports, to lower bitrate as delay grows. It MUST NOT wait for loss, because on TCP loss arrives long after the queue has formed. It SHOULD ignore the delay of a keyframe and of frames sent while one is unacknowledged, which comes from the keyframe's size and not from a queue, and SHOULD forget old delay by time and not by sample count, since on a nearly still screen samples are far apart. In one session on a 21 ms path without either rule, one keyframe took the target from 12 to about 1 Mbit/s with nothing queued.
+- **Adapt to delay, not only loss.** A sender SHOULD use channel probes ([xumux §8.1](https://github.com/deftai/xumux/blob/main/spec/core.md#81-ping-0x10-and-pong-0x11)), which include send queues, along with receiver reports, to lower bitrate as delay grows. It MUST NOT wait for loss, because on TCP loss arrives long after the queue has formed. It SHOULD ignore the delay of a keyframe and of frames sent while one is unacknowledged, which comes from the keyframe's size and not from a queue, and SHOULD forget old delay by time and not by sample count, since on a nearly still screen samples are far apart. In one session on a 21 ms path without either rule, one keyframe took the target from 12 to about 1 Mbit/s with nothing queued. For the same reason, a sender SHOULD take off each frame's transfer time at the delivery rate before judging its delay: on a 5G link delivering 10 Mbit/s, typical frames took 15-20 ms longer than small ones with no queue, and counting that held the target near 1 Mbit/s where it rose to about 6 without it.
 - **Measure the path, and hold a share.** A sender SHOULD start below its maximum until it has measured the path, and SHOULD keep its bitrate below the delivery rate that `rate_kbps` reports. If cutting the bitrate doesn't shorten the delay, the queue is someone else's, as when a download fills it, and a sender MAY hold its rate rather than give up its share, but MUST still cut while the delay keeps growing. In one test on a simulated 5 Mbit/s path with a competing download, these rules took the 99th percentile from about 1 s to about 0.25 s.
 - **Avoid keyframe spikes.** Hosts SHOULD use intra refresh or reference invalidation where the encoder allows, and send a full keyframe only when needed.
 - **Send nothing when nothing changes.** A still screen uses no bandwidth, except for refinement.
@@ -190,24 +191,27 @@ On `vroom.graphical.agent`. The agent needs no video or decoder, and each answer
 
 | Type | Name | Dir | Body |
 |---|---|---|---|
-| `0x01` | SCREENSHOT_REQ | C→S | `surface`, `region?`, `max_edge?`, `format` (`png`, `jpeg`, `webp`), `quality?`, `if_newer_than?` |
-| `0x02` | SCREENSHOT | S→C | `rev`, `origin`, `scale`, `format`, `data`, `changed_since?`, or `unchanged: true` |
+| `0x01` | SCREENSHOT_REQ | C→S | `surface`, `region?`, `max_edge?`, `format` (`png`, `jpeg`, `webp`), `quality?`, `budget_ms?`, `if_newer_than?`, `patches_since?`, `tile?` |
+| `0x02` | SCREENSHOT | S→C | `rev`, `origin`, `scale`, `format`, `lossless`, then `data` and `changed_since?`, or `since`, `tile` and `patches`, or `unchanged: true` |
 | `0x03` | CHANGES_REQ | C→S | `surface`, `since_rev` |
 | `0x04` | CHANGES | S→C | `rev`, `regions` |
 | `0x05` | ACT | C→S | `action`, `at`, `surface`, `args`, `guard?`, `wait?` |
 | `0x06` | ACT_RESULT | S→C | [Act result](./VROOM-Session.md#7-the-act-result), `rung: "pixel"` |
 
 - **`if_newer_than`** avoids sending an image the agent already has: the host answers `unchanged: true` if the surface has not changed since that revision.
+- **`patches_since`** asks for only what changed since a revision the agent has a picture of. The host answers with `patches`, each `{x, y, w, h, width, height, data}` in logical units, which don't overlap and cover every change. Laying them over that picture gives the new one exactly only if both are lossless (`lossless: true`): a lossy base or lossy patches each keep their own compression errors, so a client that needs exact pixels SHOULD ask for a lossless format. A host MAY send the whole picture instead, as when much of the surface changed or it no longer knows what changed, and MUST then send `data` and no `patches`. Patches can't be combined with `region` or `max_edge`, and the picture at the given revision MUST be one the client holds whole and unscaled: of the whole surface, without `region` or `max_edge`. Patches can't restore area outside a crop or detail lost to scaling. If the surface's size or `scale` changed since that revision, the host MUST send the whole picture.
+- **`tile`** is the patch grid in frame pixels, while patch positions are in logical units, related by `scale`. Smaller tiles send less unchanged area, and larger ones fewer, better-compressed images. A host spots changes on some grid of its own, and SHOULD round a requested size up to a multiple of it, since coarser tiles can be made exactly from finer ones and finer ones can't be known. Hosts SHOULD allow tiles up to 512 pixels. It says the size it used.
 - **`changed_since`** lists the regions changed since the given `rev`, so an agent can request crops and not spend tokens on whole screens.
 - **Actions:** `click`, `double_click`, `right_click`, `move`, `drag` (`to`), `scroll` (`dx`, `dy`), `key` (a chord such as `"Meta+S"`), and `text`.
 - **`at`** is `{x, y}` in logical units. Agents working from an image convert it using `origin` and `scale`.
+- **Formats:** `png` and `webp` without `quality` are lossless, and hosts MUST keep them lossless. Lossless describes the encoding: with `max_edge`, the scaled image is kept exactly, not the screen's own pixels. Lossy formats cost text: in one test JPEG at quality 80 lost up to 18% of words to OCR, and lossy WebP up to 11%. Lossless WebP is much smaller on text: in one test on rendered 1440x900 screens it was 4-14 times smaller than PNG at fast settings, for 20-45 ms of encoding, but it was slow on photographic content (0.2-0.6 s) for little gain. A host SHOULD cap the effort it spends, and MAY take `budget_ms` as the most a client will wait for a smaller file. 0 asks for the fastest encoding. Model APIs charge for images by their dimensions, not their size in bytes, so `max_edge`, `region` and `if_newer_than` usually save more than the format.
 - Hosts SHOULD keep the latest frame for each surface in use, without copying it until asked.
 
 ---
 
 ## 6. Audio
 
-Opus. On a channel: `0x01` AUDIO_CONFIG (CBOR) and `0x02` AUDIO_PACKET, `seq:u32`, `capture_us:u64`, then one Opus packet. Audio is only for sessions that ask for it. Over WebRTC, a host MAY use audio tracks instead ([§3.5](#35-webrtc-media-tracks)).
+Opus. On a channel: `0x01` AUDIO_CONFIG (CBOR) and `0x02` AUDIO_PACKET, `seq:u32`, `capture_us:u64`, then one Opus packet. Audio is only for sessions that ask for it. AUDIO_CONFIG states its `delivery`, which [§9](#9-profiles) sets. Over WebRTC, a host MAY use audio tracks instead ([§3.5](#35-webrtc-media-tracks)).
 
 Voice interaction is a matter for the agent above this protocol: speech arrives as audio or text, and the agent acts through whichever type fits.
 
@@ -231,6 +235,35 @@ Hosts MUST report what they cannot do, in SESSION_WELCOME capabilities or with `
 - A host MUST require authentication on any non-local binding, and on local listeners a browser could reach.
 - Sharing a real desktop exposes everything on it. Hosts SHOULD show a visible indicator while anyone is watching, not only while acting, and SHOULD let the owner scope a session to specific windows.
 - Agents on a real desktop are subject to [lease](./VROOM-Session.md#4-the-control-lease) suspension when the owner uses the machine.
+
+---
+
+## 9. Profiles
+
+*Draft. The defaults below are a starting point to test, not measured results.*
+
+People and agents want different things from the same stream. A person controlling a desktop wants it on time, and can do without some of it: a late frame or a late scrap of audio is worth nothing. An agent wants it complete, and can wait: a missed word or a blurred character is wrong, while 200 ms is usually fine.
+
+| Priority | `interactive` | `fidelity` |
+|---|---|---|
+| 1 | Smooth control | Reliable control |
+| 2 | Audio without gaps | Exact images |
+| 3 | Smooth video | Smooth video |
+| 4 | Image quality | Audio for speech recognition |
+
+A client chooses with `profile` in STREAM_START, or with PROFILE on the control channel, which starts no video, for a client that only takes screenshots, acts or listens. It MAY override the settings that have their own fields: `max_fps`, `max_bitrate` and `path` in STREAM_START, `format`, `quality` and `budget_ms` in SCREENSHOT_REQ, and `audio_delivery` in PROFILE. The default is `interactive` for a client of kind `"human"` and `fidelity` for `"agent"` ([Session §2](./VROOM-Session.md#2-messages-on-vroomsession)), but the choice is about the task, not the client: a person reading code may want `fidelity`, and an agent playing a game `interactive`. The host reports what it chose in STREAM_STATE, or in its PROFILE answer, and MUST NOT fail a request for a profile it doesn't support, only report the one it used.
+
+| Setting | `interactive` | `fidelity` |
+|---|---|---|
+| Input | As soon as possible: pointer moves coalesced, the cursor drawn by the viewer | Through ACT with guards and settling ([§5](#5-agent-access)), each with a result |
+| Under congestion | Keep the frame rate, and give up resolution and quality first | Keep quality, and give up frame rate first |
+| Frames in flight | §3.3's limit | §3.3's limit. More would only queue: in one simulation of a congested link, removing the limit raised frame rate from 53 to 55 fps and the 95th percentile of lag from 290 to 1081 ms |
+| Encoder | Low-latency rate control | A minimum bitrate, giving up frame rate first. Exact pixels come from screenshots, since video refinement can't pass the 4:2:0 limit (§3.3) |
+| Exact pixels | Rarely | Lossless screenshots ([§5](#5-agent-access)), with video for knowing when to take them |
+| Audio `delivery` | `"timely"`: unreliable channel, Opus in-band FEC, the receiver conceals losses | `"complete"`: reliable channel, the receiver MUST NOT conceal |
+| Audio format | 48 kHz, as the source has it | 16 kHz mono is enough for most speech recognition |
+
+**Audio is where the two differ most.** For a person, a gap is worse than a guess. A receiver SHOULD conceal lost packets (Opus decoders do this when told a packet is missing, and in-band FEC recovers single losses from the next packet), and SHOULD use a jitter buffer that adapts to the path. Unlike a video frame, an audio packet can be decoded without the ones before it, so an unreliable channel suits audio even where it didn't suit video ([§3.2](#32-messages-on-the-video-channel)). For speech recognition, a guess is worse than a gap: concealment invents sound, which can become words that weren't said. A `"complete"` receiver MUST NOT conceal, and MUST mark any gap it can't fill.
 
 ---
 
