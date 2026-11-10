@@ -86,6 +86,8 @@ Senders SHOULD spread each frame's bytes over the frame interval, but some frame
 
 **Suggestion:** say how pacing and frame dropping behave when a frame exceeds one interval's budget. Intra refresh (already a SHOULD) reduces how often this happens, but the first frame still needs a rule.
 
+**Update:** pacing is now optional (MAY), and a sender that paces SHOULD pace at twice its bitrate target or faster, so that `rate_kbps` can still measure the path. At twice a 3 Mbit/s target, the largest frames above still take about 0.1-0.3 s, so a rule for oversized frames is still open.
+
 ### 4. Suggested values for keyframe-sized limits (§3.3, [Session §1](./VROOM-Session.md))
 
 `maxMessageSize` must hold the largest keyframe, and `initialWindow` must be at least that value. Largest frames observed:
