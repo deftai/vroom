@@ -16,7 +16,7 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 - HELLO bootstrap protocol for encoding negotiation (always JSON, selects encoding for subsequent messages)
 - README landing page linking both companion protocol specs
 - VROOM-Graphical review notes: non-normative open questions
-- VROOM-Graphical: TEXT_REQ/TEXT (`0x07`/`0x08`), reading a surface's text with boxes; the `open` action (an app, URL or file); CLIPBOARD_SYNC (`0x23`), how a client opts in to the clipboard; in `text`, newlines and tabs press Return and Tab
+- VROOM-Graphical: TEXT_REQ/TEXT (`0x07`/`0x08`), reading a surface's text with boxes; the `open` and `clipboard` actions; CLIPBOARD_SYNC (`0x23`), how a client opts in to the clipboard; in `text`, newlines and tabs press Return and Tab
 
 ### Changed
 - VROOM-Graphical: frames bigger than one interval are sent whole, with captures dropped meanwhile and their delay not used to lower the bitrate
