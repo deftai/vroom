@@ -12,11 +12,11 @@ VROOM-Terminal runs programs on a host's pseudo-terminals. A person gets the PTY
 
 All four types can run over the same xumux connection, with one session and one lease table.
 
-**Profile:** `vroom-terminal/1`. Each terminal is a surface with the ID `pty:<n>`. Its logical unit is the **cell**: `x` is the column and `y` the row, from `0` at the top left of the screen.
+**Profile:** `vroom-terminal/1`. Each terminal is a surface with the ID `pty:<n>`. Its logical unit is the **cell**: `x` is the column and `y` the row, from `0` at the top left of the screen. A host is also a multiplexer ([§7](#7-multiplexing)): terminals are panes in windows in sessions, and a session is a surface with the ID `tsession:<n>`.
 
 **Implementation note:** each channel's payload format is a **channel codec** on xumux, decoded after demux. See [I/O stack](./docs/io-stack.md).
 
-**Changes from 0.2.0:** this revision aligns Terminal with VROOM-Session. Its own HELLO, authentication and 8-byte TLV header are gone: the session's handshake, xumux `auth` and xumux message types replace them. Terminals are surfaces under the session's leases. Agent access (§5) is new.
+**Changes from 0.2.0:** this revision aligns Terminal with VROOM-Session. Its own HELLO, authentication and 8-byte TLV header are gone: the session's handshake, xumux `auth` and xumux message types replace them. Terminals are surfaces under the session's leases. Agent access (§5) and multiplexing (§7) are new.
 
 ---
 
@@ -26,8 +26,9 @@ All four types can run over the same xumux connection, with one session and one 
 - Agents get the screen, not a byte stream: they read text, wait for output to settle or for something to appear, and act by keys and text, as they do in the other types.
 - One vocabulary with the other types: surfaces, leases, guards, settling and the act result come from VROOM-Session.
 - Several terminals on one connection, and a terminal that outlives the connection that opened it.
+- Multiplexing as tmux and its successors do it: sessions of windows of panes, one arrangement shared by every viewer, detached and attached at will. A host may also serve the panes of a multiplexer already running ([§7.5](#75-bridged-multiplexers)).
 
-Not goals: file transfer and port forwarding (§9), and replacing SSH's user and host authentication.
+Not goals: file transfer and port forwarding ([§10](#10-later)), and replacing SSH's user and host authentication.
 
 ---
 
@@ -85,7 +86,7 @@ On `vroom.terminal.control`. Requests carry `request_id`, and errors are Session
 | Type | Name | Dir | Body |
 |---|---|---|---|
 | `0x01` | TERM_HELLO | Both | [§3](#3-handshake) |
-| `0x02` | PTY_LIST | Both | C→S: nothing. S→C: `ptys`, each `{id, title, rows, cols, command, running, exit?}` |
+| `0x02` | PTY_LIST | Both | C→S: nothing. S→C: `ptys`, each `{id, title, rows, cols, command, running, exit?, session, window, source?, stream?}` |
 | `0x03` | PTY_OPEN | C→S | `shell?: true` or `command` and `args`, `cwd?`, `env?`, `term?`, `rows`, `cols`, `xpix?`, `ypix?`. Answered with PTY_STATE |
 | `0x04` | PTY_STATE | S→C | `pty`, `state` (`opened`, `exited`, `closed`), `exit_code?`, `signal?`. Sent in answer and when a terminal's program exits |
 | `0x05` | PTY_CLOSE | C→S | `pty`: hangs the terminal up (SIGHUP) and removes it |
@@ -98,8 +99,18 @@ On `vroom.terminal.control`. Requests carry `request_id`, and errors are Session
 | `0x13` | CHANGES | S→C | `rev`, `rows` (changed row indices), or `too_old: true` |
 | `0x14` | ACT | C→S | `pty`, `action`, `args`, `guard?`, `wait?` ([§5.3](#53-actions)) |
 | `0x15` | ACT_RESULT | S→C | The [act result](./VROOM-Session.md#7-the-act-result) |
+| `0x20` | MUX_STATE | S→C | Sessions, windows and layouts ([§7.1](#71-the-model)): in answer to MUX_SUBSCRIBE, then on every change |
+| `0x21` | MUX_SUBSCRIBE | C→S | `on`: whether to receive MUX_STATE |
+| `0x22` | SESSION_NEW | C→S | `name?`, and a first pane as PTY_OPEN's fields. Answered with MUX_STATE |
+| `0x23` | WINDOW_NEW | C→S | `session`, `name?`, and a first pane as PTY_OPEN's fields |
+| `0x24` | SPLIT | C→S | `pty`, `direction` (`right` or `down`), `size?` (the new pane's share, `0`–`1`), and the new pane as PTY_OPEN's fields |
+| `0x25` | ARRANGE | C→S | `window`, `layout` ([§7.1](#71-the-model)): resizes, moves and swaps panes in one step |
+| `0x26` | FOCUS | C→S | `pty`: makes its window the active one and the pane the focused one |
+| `0x27` | ZOOM | C→S | `pty`, `on`: the pane fills its window, or not |
+| `0x28` | RENAME | C→S | `session`, `window` or `pty`, and `name` |
+| `0x29` | KILL | C→S | `session`, `window` or `pty`: closes it and everything in it |
 
-Opening, closing, resizing, signalling, input and actions need the terminal's lease ([Session §4](./VROOM-Session.md#4-the-control-lease)). PTY_OPEN needs none and gives the opener no lease. Watching (PTY_LIST, PTY_ATTACH, SCREEN_REQ, CHANGES_REQ) needs none. A terminal whose program has exited stays listed, with its last screen, until PTY_CLOSE.
+Opening, closing, resizing, signalling, input, actions and arranging ([§7.3](#73-leases)) need the terminal's lease ([Session §4](./VROOM-Session.md#4-the-control-lease)). PTY_OPEN needs none and gives the opener no lease. Watching (PTY_LIST, PTY_ATTACH, SCREEN_REQ, CHANGES_REQ) needs none. A terminal whose program has exited stays listed, with its last screen, until PTY_CLOSE.
 
 ---
 
@@ -182,13 +193,65 @@ On `vroom.terminal.pty.<n>`:
 
 ---
 
-## 7. Leases and people
+## 7. Multiplexing
+
+### 7.1 The model
+
+A host keeps **sessions**. A session has **windows**, in order, one of them active. A window has a **layout**: a tree whose leaves are panes, each a terminal (`pty:<n>`), and whose other nodes are splits. One pane of each window has the focus. All of it lasts until it's killed, whether or not any client is connected.
+
+```json
+{
+  "rev": 18,
+  "sessions": [{
+    "id": "tsession:1", "name": "work", "active_window": 2,
+    "windows": [{
+      "id": 2, "name": "editor", "focus": "pty:4", "zoom": null,
+      "rows": 50, "cols": 200,
+      "layout": { "split": "right", "children": [
+        { "pane": "pty:4", "size": 0.6 },
+        { "split": "down", "size": 0.4, "children": [ { "pane": "pty:5", "size": 0.5 }, { "pane": "pty:6", "size": 0.5 } ] }
+      ] }
+    }]
+  }]
+}
+```
+
+`split: "right"` lays children side by side, and `split: "down"` one above the next. `size` is each child's share of its parent, and the shares of a node's children add up to `1`. The host turns shares into whole cells, with a one-cell border between panes, and each pane's terminal has the resulting size.
+
+### 7.2 Viewers
+
+Every client sees the same sessions, windows and layouts. Attaching to a session is subscribing to MUX_STATE and attaching (PTY_ATTACH) to the panes it shows. Detaching is closing those channels: the session runs on.
+
+A window has one size. When viewers' terminals differ, it takes the size of the last client to take the session's lease or to send RESIZE for one of its panes. Other viewers draw it in theirs as best they can, by cropping or padding.
+
+### 7.3 Leases
+
+A lease on a session (`tsession:<n>`) covers its windows and panes, as a lease on a display covers its windows. Arranging (SPLIT, ARRANGE, FOCUS, ZOOM, RENAME, KILL, WINDOW_NEW) needs the session's lease. Input and actions on one pane need that pane's lease, or its session's. A person may hold a session while an agent works one pane of another, and a person's request takes either from an agent as usual.
+
+### 7.4 Drawing (informative)
+
+A client may draw a session's layout itself, as a tmux client does: one terminal, its panes laid out inside it, each fed by its byte stream. It may instead give each pane to a multiplexer of its own, such as one block, pane or window per VROOM pane, and leave the layout to it. MUX_STATE serves both.
+
+### 7.5 Bridged multiplexers
+
+A host MAY serve the sessions of a multiplexer already running on it, such as tmux, as its own: their panes are `pty:<n>` surfaces and their arrangement is MUX_STATE. Each session and pane says where it comes from, with `source` (`"tmux"`, say), and what the bridge can do:
+
+| Field | Meaning |
+|---|---|
+| `stream` | The pane's bytes are available, so PTY_ATTACH works. Without it, PTY_ATTACH is refused with `4605` and only the screen is offered |
+| `arrange` | The multiplexer's layout can be changed through VROOM |
+
+A bridged pane's screen comes from the host's emulator when the bytes are available, and otherwise from the multiplexer's own capture of its screen. Changes made in the multiplexer itself, by its own clients, appear in MUX_STATE as they happen.
+
+---
+
+## 8. Leases and people
 
 As in every type, a person outranks an agent ([Session §4](./VROOM-Session.md#4-the-control-lease)). A person typing into a terminal holds its lease, and an agent's actions there fail with `4600` until they release it. Watching is open to both: an agent may read the screen while a person types, and a person may watch an agent work.
 
 ---
 
-## 8. Security
+## 9. Security
 
 - A terminal runs programs as the host's user. A host MUST NOT offer terminals unless configured to, and SHOULD limit `exec` and `shells` to what it was configured for.
 - ACTIVITY ([Session §8](./VROOM-Session.md#8-audit)) names the terminal and the action, never the text typed or pasted.
@@ -197,7 +260,7 @@ As in every type, a person outranks an agent ([Session §4](./VROOM-Session.md#4
 
 ---
 
-## 9. Later
+## 10. Later
 
 - File transfer and port forwarding, as further channels.
 - Gateways: `vroom-to-ssh` and `ssh-to-vroom`.
@@ -205,7 +268,7 @@ As in every type, a person outranks an agent ([Session §4](./VROOM-Session.md#4
 
 ---
 
-## 10. Comparison (informative)
+## 11. Comparison (informative)
 
 | | VROOM-Terminal | OpenSSH | Mosh |
 |---|---|---|---|
@@ -214,13 +277,14 @@ As in every type, a person outranks an agent ([Session §4](./VROOM-Session.md#4
 | Kitty keyboard and graphics | Passed through | Passed through | No |
 | Reconnect to a running terminal | Yes (REDRAW) | No | Yes |
 | Several terminals on one connection | Yes | Yes (channels) | No |
+| Sessions, windows and panes | Yes (§7), and bridges to tmux and others | No (tmux alongside) | No |
 | With Graphical and Browsable | One connection and session | No | No |
 
 ---
 
 ## Status
 
-Draft. The agent access in §5 is new in 0.3.0 and expected to change as hosts implement it.
+Draft. The agent access in §5 and the multiplexing in §7 are new in 0.3.0 and expected to change as hosts implement them.
 
 ## License
 
