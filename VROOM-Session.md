@@ -152,6 +152,7 @@ A surface is settled when nothing has changed for `quiet_ms`, outside the logica
 | Graphical | The capture reported damage |
 | Structural | A tree event arrived |
 | Browsable | The DOM changed, or a document, script or stylesheet request is in flight |
+| Terminal | The program's output changed the screen or cursor |
 
 `wait` is accepted on any action and in WAIT. On timeout the action itself still counts as performed, and `settled.state` is `"timeout"`.
 
@@ -159,7 +160,7 @@ A surface is settled when nothing has changed for `quiet_ms`, outside the logica
 
 ## 7. The act result
 
-Every action in every type except Terminal returns this shape, so that an agent always learns what happened without taking another look.
+Every action in every type returns this shape, so that an agent always learns what happened without taking another look.
 
 ```json
 {
