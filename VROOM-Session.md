@@ -126,16 +126,6 @@ A client needs a lease to act on a surface. Watching needs none. This replaces t
 - LEASE_REVOKE_ALL ends every lease immediately. Hosts SHOULD also provide a local kill switch that needs no connection.
 - Hosts acting on a real desktop SHOULD show a visible indicator while an agent holds a lease.
 
-### 4.1 Blanking the host's screens
-
-A lease on a display MAY ask for `"blank": true`: while the client holds a lease, the host's physical screens show nothing and its own keyboard and pointer are ignored, so that nobody at the machine sees or disturbs the work. Capture continues: the client still sees the displays.
-
-- A host MUST refuse `blank` with `4603` unless its owner has enabled it, and with `4605` on a surface that isn't a display. LEASE_STATE in answer says `"blank": true` while it's in effect for that client.
-- It MUST end as soon as the client holds no lease: released, expired, revoked or disconnected.
-- A person at the machine MUST be able to end it there, without a connection, such as with a key combination. Doing so also ends the client's leases.
-- It MUST NOT outlive the host: if the host stops or fails, the screens and local input come back.
-- While it's in effect, local input is ignored, so it doesn't suspend the lease (§4).
-
 ---
 
 ## 5. Revisions and guards
