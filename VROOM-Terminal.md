@@ -12,7 +12,7 @@ VROOM-Terminal runs programs on a host's pseudo-terminals. A person gets the PTY
 
 All four types can run over the same xumux connection, with one session and one lease table.
 
-**Profile:** `vroom-terminal/1`. Each terminal is a surface with the ID `pty:<n>`. Its logical unit is the **cell**: `x` is the column and `y` the row, from `0` at the top left of the screen. A host is also a multiplexer ([§7](#7-multiplexing)): terminals are panes in windows in sessions, and a session is a surface with the ID `tsession:<n>`.
+**Profile:** `vroom-terminal/1`. Each terminal is a surface with the ID `pty:<n>`. Its logical unit is the **cell**: `x` is the column and `y` the row, from `0` at the top left of the screen. Cells have a size in pixels, and what's drawn isn't only one character a cell: images, larger text and pixel-precise pointers sit in and across cells ([§5.1](#51-geometry)). A host is also a multiplexer ([§7](#7-multiplexing)): terminals are panes in windows in sessions, and a session is a surface with the ID `tsession:<n>`.
 
 **Implementation note:** each channel's payload format is a **channel codec** on xumux, decoded after demux. See [I/O stack](./docs/io-stack.md).
 
@@ -52,7 +52,7 @@ Client:
 ```json
 {
   "terminal": { "name": "xterm-kitty", "truecolor": true, "unicode_version": "15.1" },
-  "features": ["kitty_keyboard", "kitty_graphics", "sixel", "synchronized_output", "bracketed_paste", "osc52_clipboard", "hyperlinks"]
+  "features": ["kitty_keyboard", "kitty_graphics", "kitty_text_sizing", "sixel", "synchronized_output", "bracketed_paste", "osc52_clipboard", "hyperlinks", "sgr_pixel_mouse"]
 }
 ```
 
@@ -62,7 +62,7 @@ Host:
 {
   "shells": true,
   "exec": true,
-  "agent": ["screen", "changes", "act"],
+  "agent": ["screen", "changes", "act", "images", "render"],
   "scrollback": 10000,
   "features": ["kitty_keyboard", "kitty_graphics", "bracketed_paste", "osc52_clipboard"]
 }
@@ -73,7 +73,7 @@ Host:
 | `terminal` | The client's terminal. The host uses `name` for `TERM` when the client opens a terminal, unless the request names `term` |
 | `features` (client) | What the client's terminal can draw or send |
 | `shells`, `exec` | Whether the host starts a login shell, or a command, on request |
-| `agent` | The agent access offered ([§5](#5-agent-access)) |
+| `agent` | The agent access offered ([§5](#5-agent-access)): `screen`, `changes`, `act`, `images` (images on the screen and their data), `render` (screenshots of the terminal as drawn) |
 | `scrollback` | Lines of scrollback the host keeps per terminal, `0` for none |
 | `features` (host) | The features the host's emulator understands, so that agents see them on the screen too |
 
@@ -94,11 +94,15 @@ On `vroom.terminal.control`. Requests carry `request_id`, and errors are Session
 | `0x07` | RESIZE | C→S | `pty`, `rows`, `cols`, `xpix?`, `ypix?` |
 | `0x08` | SIGNAL | C→S | `pty`, `signal` by name: `INT`, `TERM`, `HUP`, `QUIT`, `TSTP`, `CONT`, `WINCH`, `KILL` |
 | `0x10` | SCREEN_REQ | C→S | `pty`, `scrollback?` (lines before the screen), `styles?`, `if_newer_than?` |
-| `0x11` | SCREEN | S→C | [§5.1](#51-the-screen) |
+| `0x11` | SCREEN | S→C | [§5.2](#52-the-screen) |
 | `0x12` | CHANGES_REQ | C→S | `pty`, `since` (a `rev`) |
 | `0x13` | CHANGES | S→C | `rev`, `rows` (changed row indices), or `too_old: true` |
-| `0x14` | ACT | C→S | `pty`, `action`, `args`, `guard?`, `wait?` ([§5.3](#53-actions)) |
+| `0x14` | ACT | C→S | `pty`, `action`, `args`, `guard?`, `wait?` ([§5.4](#54-actions)) |
 | `0x15` | ACT_RESULT | S→C | The [act result](./VROOM-Session.md#7-the-act-result) |
+| `0x16` | IMAGE_REQ | C→S | `pty`, `image` (an ID from the screen), `format?` (`png` by default, or `webp`), `max_edge?` |
+| `0x17` | IMAGE | S→C | `image`, `width`, `height` (pixels), `format`, `data` |
+| `0x18` | SCREENSHOT_REQ | C→S | `pty`, and [Graphical's](./VROOM-Graphical.md#5-agent-access) `format`, `max_edge`, `region` (in cells), `if_newer_than`. Only when the host renders (TERM_HELLO `agent` has `render`) |
+| `0x19` | SCREENSHOT | S→C | [Graphical's result](./VROOM-Graphical.md#5-agent-access), with `origin` in cells and `scale` in image pixels a cell |
 | `0x20` | MUX_STATE | S→C | Sessions, windows and layouts ([§7.1](#71-the-model)): in answer to MUX_SUBSCRIBE, then on every change |
 | `0x21` | MUX_SUBSCRIBE | C→S | `on`: whether to receive MUX_STATE |
 | `0x22` | SESSION_NEW | C→S | `name?`, and a first pane as PTY_OPEN's fields. Answered with MUX_STATE |
@@ -116,9 +120,17 @@ Opening, closing, resizing, signalling, input, actions and arranging ([§7.3](#7
 
 ## 5. Agent access
 
-The host feeds each terminal's output to a terminal emulator as it arrives and keeps the result: the screen, the cursor, the modes the program has set, and up to `scrollback` lines above the screen. Agents read and act on that.
+The host feeds each terminal's output to a terminal emulator as it arrives and keeps the result: the screen, its images, the cursor, the modes the program has set, and up to `scrollback` lines above the screen. Agents read and act on that.
 
-### 5.1 The screen
+### 5.1 Geometry
+
+A terminal is a grid of cells, and also a picture in pixels. Its cell size in pixels comes from the client that sized it (PTY_OPEN's or RESIZE's `xpix` and `ypix`, divided by `cols` and `rows`). A host that renders uses the same size, and one that hasn't been told a size MAY assume its own.
+
+- Positions are in cells, and MAY add a pixel offset within the cell, `{x, y, px?, py?}`, as Kitty image placements and pixel-precise pointers have.
+- A pixel position is `x * cell_w + px` across and `y * cell_h + py` down, from the top left of the screen.
+- Programs learn the cell size as they would from a local terminal: the PTY's window size in pixels, and the terminal's answers to their queries.
+
+### 5.2 The screen
 
 ```json
 {
@@ -129,7 +141,12 @@ The host feeds each terminal's output to a terminal emulator as it arrives and k
   "title": "vim notes.md",
   "lines": ["$ ls", "notes.md  todo.txt", "$ vim notes.md", ""],
   "scrollback": ["…"],
-  "styles": [[{ "x": 0, "w": 8, "fg": "#5fd7ff", "bold": true }]]
+  "styles": [[{ "x": 0, "w": 8, "fg": "#5fd7ff", "bold": true }]],
+  "cell_px": { "w": 9, "h": 18 },
+  "images": [
+    { "image": "i7", "source": "kitty", "x": 2, "y": 5, "px": 0, "py": 4, "cols": 30, "rows": 10, "z": 0, "width": 640, "height": 360 }
+  ],
+  "sized": [{ "x": 0, "y": 0, "scale": 2, "text": "Title" }]
 }
 ```
 
@@ -140,12 +157,17 @@ The host feeds each terminal's output to a terminal emulator as it arrives and k
 | `alternate` | The program is using the alternate screen, as full-screen programs do. Scrollback then belongs to the main screen |
 | `scrollback` | Present when asked for: the lines above the screen, oldest first |
 | `styles` | Present when asked for: per row, runs of cells with non-default styling |
+| `cell_px` | The cell size in pixels ([§5.1](#51-geometry)) |
+| `images` | Images on the screen: Kitty graphics placements (Unicode placeholders included) and Sixel images, each with an `image` ID for IMAGE_REQ, where it's placed (a cell, a pixel offset in it, and the cells it spans), `z` (negative is under the text), and its size in pixels. A Sixel image is listed as the cells it covers |
+| `sized` | Text drawn larger than a cell, as with Kitty's text sizing (OSC 66): its first cell, `scale` (cells a character spans), and the text. `lines` hold the text too, at its first cell |
 
 `if_newer_than` answers `{rev, unchanged: true}` when nothing changed since.
 
-### 5.2 Settling and waiting
+A screen's text says what it says, and its images say where they are and how big. What can't be said in text or in placements, a chart drawn in braille or an image's content, needs the picture: IMAGE_REQ for one image, or SCREENSHOT_REQ for the terminal as drawn, where the host renders.
 
-For Terminal, **changed** in [Session §6](./VROOM-Session.md#6-settling) means the program wrote output that changed the screen or cursor. An `ignore` region is in cells.
+### 5.3 Settling and waiting
+
+For Terminal, **changed** in [Session §6](./VROOM-Session.md#6-settling) means the program wrote output that changed the screen, its images or the cursor. An `ignore` region is in cells.
 
 WAIT and `wait` on ACT also accept `until: "text"`, which is met when the screen (or, with `scrollback: true`, its scrollback) contains `text`, a plain string, or matches `regex`:
 
@@ -155,22 +177,28 @@ WAIT and `wait` on ACT also accept `until: "text"`, which is met when the screen
 
 A program that exits also ends a wait, with `settled.state: "exited"`.
 
-### 5.3 Actions
+### 5.4 Actions
 
 | `action` | `args` | Effect |
 |---|---|---|
 | `text` | `text` | Types the text as keystrokes would. `\n` is Return |
-| `key` | `key`: a chord such as `ctrl+c`, `up`, `shift+tab`, `f5`, `alt+b` | One key, encoded as the program asked ([§5.4](#54-keys)) |
+| `key` | `key`: a chord such as `ctrl+c`, `up`, `shift+tab`, `f5`, `alt+b` | One key, encoded as the program asked ([§5.5](#55-keys-and-the-pointer)) |
 | `paste` | `text` | Pastes, bracketed if the program turned bracketed paste on |
+| `click` | `at` (a position, [§5.1](#51-geometry)), `button?` (`left`, `middle`, `right`), `count?` | A mouse click, if the program asked for mouse input |
+| `move` | `at` | The pointer moves there, if the program asked for motion |
+| `drag` | `from`, `to`, `button?` | Press, move and release |
+| `wheel` | `at`, `dy`, `dx?` | Wheel steps; positive `dy` scrolls down |
 | `scroll` | `lines` | Scrolls the agent's view of scrollback; the program sees nothing |
 
-Each returns the act result with `rung: "none"` and, when it waited, `changes.regions` as the changed rows: `{x: 0, y: <row>, w: <cols>, h: 1}`.
+Each returns the act result with `rung: "none"` and, when it waited, `changes.regions` as the changed cells: whole rows `{x: 0, y: <row>, w: <cols>, h: 1}`, and the cells of images that changed.
 
 A guard's `scope` is `surface` (any change) or `region` (a change in the given cells). `node` is refused with `4605`.
 
-### 5.4 Keys
+### 5.5 Keys and the pointer
 
 The host encodes an agent's keys by the modes the program has set: application cursor and keypad modes, bracketed paste, and the Kitty keyboard protocol at the level the program pushed. An agent names keys; it never writes escape sequences. A key the encoding can't express is refused with `4605`.
+
+Pointer actions are encoded by the program's mouse modes: which events it asked for (presses, drags, all motion) and how (SGR, or SGR with pixel positions, 1016). With pixel positions the host sends the pixel the agent named, and otherwise the cell. A pointer action on a program that asked for no mouse input is refused with `4605`: there is nothing to send it to.
 
 A person's input on the byte stream is not encoded: their terminal has already encoded it.
 
@@ -184,10 +212,11 @@ On `vroom.terminal.pty.<n>`:
 |---|---|---|---|
 | `0x01` | OUTPUT | S→C | Bytes the program wrote, as written |
 | `0x02` | INPUT | C→S | Bytes for the program, as the client's terminal produced them |
-| `0x03` | REDRAW | S→C | Bytes that draw the current screen from blank, sent first on attaching |
+| `0x03` | REDRAW | S→C | Bytes that draw the current screen from blank, images included, sent first on attaching |
 
 - The host MUST pass output through unchanged, in order, including sequences its emulator doesn't understand.
-- On attaching, the host sends REDRAW, then OUTPUT from that point. A client that reconnects to a running terminal sees its screen at once.
+- On attaching, the host sends REDRAW, then OUTPUT from that point. A client that reconnects to a running terminal sees its screen at once: its text, styles and sized text, and its images, transmitted and placed again. A host keeps the image data placements need for as long as they're on the screen or in scrollback.
+- Graphics a client's terminal can't show (a Kitty image to a terminal without Kitty graphics, say, from its TERM_HELLO) are still passed through: the program asked for them, and a host doesn't rewrite output. A program should check what the terminal supports, as it would locally.
 - INPUT needs the terminal's lease. Without it the host drops the input and reports `4600` on the session, at most once a second.
 - OUTPUT that a slow client can't take is not dropped: xumux flow control holds the program back. A host MAY instead close a channel that stays full, so that one slow viewer cannot stall the program for everyone.
 
