@@ -81,7 +81,7 @@ Host:
 
 ## 4. Messages
 
-On `vroom.terminal.control`. Requests carry `request_id`, and errors are Session ERRORs ([§9](./VROOM-Session.md#9-error-codes)). The host MAY answer requests in any order, so every reply and every error about a request echoes its `request_id`, and a reply about a terminal also names its `pty`.
+On `vroom.terminal.control`. Requests carry `request_id`, and errors are Session ERRORs ([§9](./VROOM-Session.md#9-error-codes)). The host MAY answer requests in any order, so every reply and every error about a request echoes its `request_id`, and a reply about a terminal also names its `pty`. Bytes, such as IMAGE's and SCREENSHOT's `data`, are a byte string in CBOR and a base64 string (RFC 4648, with padding) in JSON.
 
 | Type | Name | Dir | Body |
 |---|---|---|---|
@@ -102,7 +102,7 @@ On `vroom.terminal.control`. Requests carry `request_id`, and errors are Session
 | `0x16` | IMAGE_REQ | C→S | `pty`, `image` (an ID from the screen), `format?` (`png` by default, or `webp`), `max_edge?` |
 | `0x17` | IMAGE | S→C | `image`, `width`, `height` (pixels), `format`, `data` |
 | `0x18` | SCREENSHOT_REQ | C→S | `pty`, and [Graphical's](./VROOM-Graphical.md#5-agent-access) `format`, `max_edge`, `region` (in cells), `if_newer_than`. Only when the host renders (TERM_HELLO `agent` has `render`) |
-| `0x19` | SCREENSHOT | S→C | [Graphical's result](./VROOM-Graphical.md#5-agent-access), with `origin` in cells and `scale` in image pixels a cell |
+| `0x19` | SCREENSHOT | S→C | [Graphical's result](./VROOM-Graphical.md#5-agent-access), with `origin` and `scale` in the terminal's pixels, not cells, and `cell_px` ([§5.1](#51-geometry)) |
 | `0x20` | MUX_STATE | S→C | Sessions, windows and layouts ([§7.1](#71-the-model)): in answer to MUX_SUBSCRIBE, then on every change |
 | `0x21` | MUX_SUBSCRIBE | C→S | `on`: whether to receive MUX_STATE |
 | `0x22` | SESSION_NEW | C→S | `name?`, and a first pane as PTY_OPEN's fields. Answered with MUX_STATE |
@@ -129,6 +129,7 @@ A terminal is a grid of cells, and also a picture in pixels. Its cell size in pi
 
 - Positions are in cells, and MAY add a pixel offset within the cell, `{x, y, px?, py?}`, as Kitty image placements and pixel-precise pointers have.
 - A pixel position is `x * cell_w + px` across and `y * cell_h + py` down, from the top left of the screen.
+- Pixels are square and cells usually aren't, so pictures of a terminal (SCREENSHOT) are measured in its pixels: a point in the image is at terminal pixel `origin + image_pixel / scale`, on each axis, however the image was scaled, and in cell `floor(px / cell_w)`, `floor(py / cell_h)`. [Session §3](./VROOM-Session.md#3-surfaces-and-coordinates)'s rule holds with the pixel as the unit.
 - Programs learn the cell size as they would from a local terminal: the PTY's window size in pixels, and the terminal's answers to their queries.
 
 ### 5.2 The screen
