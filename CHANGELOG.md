@@ -8,6 +8,8 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 ## [Unreleased]
 
 ### Added
+- VROOM-Graphical: a third profile, `high-performance` (§9), for a fast local network; how a host chooses from STREAM_START's `codecs`, and HEVC 4:4:4 (`hvc1.4…`) for sharp coloured text (§3.1)
+- VROOM-Session: `blank` on a display's lease, blanking the host's screens and ignoring its own input while the lease is held (§4.1); agent displays (`virtual`, `input: "separate"` for side-by-side work) and SURFACE_CREATE / SURFACE_CLOSE (`0x04`/`0x05`) (§3)
 - VROOM-Session spec: the shared base (control lease, revisions and guards, settling, act result, surfaces and coordinates, error codes)
 - VROOM-Browsable spec: browsers as a fourth type (tabs, page tree, navigation, network and console events, storage, dialogs, tab video)
 - [docs/io-stack.md](./docs/io-stack.md): non-normative guide to running VROOM 0.2 channels on xumux 0.3, with per-channel codecs and presets; README and spec pointers

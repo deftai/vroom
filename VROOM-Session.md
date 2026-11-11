@@ -38,6 +38,8 @@ Structured messages use CBOR by default and JSON where negotiated. SESSION_HELLO
 | `0x01` | SESSION_HELLO | C→S | Version, encodings, client identity |
 | `0x02` | SESSION_WELCOME | S→C | Selected encoding, offered types, surfaces |
 | `0x03` | SURFACES | S→C | The surfaces changed |
+| `0x04` | SURFACE_CREATE | C→S | Create an agent display (§3) |
+| `0x05` | SURFACE_CLOSE | C→S | Close one (§3) |
 | `0x10` | LEASE_REQUEST | C→S | Ask to act on a surface |
 | `0x11` | LEASE_RELEASE | C→S | Give a lease up |
 | `0x12` | LEASE_STATE | S→C | Who holds what, sent on every change |
@@ -91,6 +93,15 @@ A **surface** is something that can be observed and acted on. Its ID is a string
 }
 ```
 
+A host MAY offer **agent displays**: displays of its own that no physical screen shows, listed with the others and marked `"virtual": true`, so that an agent can work without taking over the person's screens. A host that keeps an agent display's input apart from the person's, sending it to the applications on that display without moving the local pointer or changing the local focus, says `"input": "separate"`; otherwise `"input": "shared"`, and the lease decides who has the one pointer. With separate input, a person and an agent can each work on their own displays at the same time ("side by side"). A host MAY create agent displays at start, or when asked:
+
+| Type | Name | Dir | Body |
+|---|---|---|---|
+| `0x04` | SURFACE_CREATE | C→S | `kind: "display"`, `w`, `h`. Answered by SURFACES with the new surface, or ERROR (`4603` if the host doesn't allow it, `4605` if it can't) |
+| `0x05` | SURFACE_CLOSE | C→S | `surface`: one this client created. Answered by SURFACES |
+
+A host SHOULD close the agent displays a client created when it disconnects.
+
 **Coordinates are logical and scoped to a surface**, with the origin at its top-left. A logical unit is a macOS point, a Windows DIP, a Wayland logical pixel or a CSS pixel. Every coordinate names its surface, so multiple monitors and HiDPI are never ambiguous.
 
 Every image a host returns reports how it maps to its surface: `origin` in logical units, and `scale` in image pixels per logical unit. A client computes `logical = origin + image_pixel / scale`. Clients MUST NOT assume an image is 1:1 with its surface.
@@ -114,6 +125,16 @@ A client needs a lease to act on a surface. Watching needs none. This replaces t
 - `ttl_ms` is renewed by each action or by another LEASE_REQUEST, so a stalled agent loses control by itself.
 - LEASE_REVOKE_ALL ends every lease immediately. Hosts SHOULD also provide a local kill switch that needs no connection.
 - Hosts acting on a real desktop SHOULD show a visible indicator while an agent holds a lease.
+
+### 4.1 Blanking the host's screens
+
+A lease on a display MAY ask for `"blank": true`: while the client holds a lease, the host's physical screens show nothing and its own keyboard and pointer are ignored, so that nobody at the machine sees or disturbs the work. Capture continues: the client still sees the displays.
+
+- A host MUST refuse `blank` with `4603` unless its owner has enabled it, and with `4605` on a surface that isn't a display. LEASE_STATE in answer says `"blank": true` while it's in effect for that client.
+- It MUST end as soon as the client holds no lease: released, expired, revoked or disconnected.
+- A person at the machine MUST be able to end it there, without a connection, such as with a key combination. Doing so also ends the client's leases.
+- It MUST NOT outlive the host: if the host stops or fails, the screens and local input come back.
+- While it's in effect, local input is ignored, so it doesn't suspend the lease (§4).
 
 ---
 
