@@ -1,227 +1,226 @@
 # VROOM-Terminal
 
-**Virtual Remoting Over Open Methods — Terminal Protocol**
+**Virtual Remoting Over Open Methods: Terminal Protocol**
 
-*A modern, capability-aware terminal protocol for the age of Kitty, Sixel, and AI agents.*
+*Terminals for humans and agents: a PTY's bytes for people, its screen for agents.*
 
-Official Name: VROOM-Terminal | Base: [VROOM-Session](./VROOM-Session.md) | Companions: [Graphical](./VROOM-Graphical.md), [Structural](./VROOM-Structural.md), [Browsable](./VROOM-Browsable.md)
-Transport: [xumux](https://xumux.org) (WebSocket, WebRTC Data Channels, QUIC, TCP, etc.)
-Version: 0.2.0-draft | Status: Draft | Date: 2026-03-28
+Version: 0.3.0-draft | Status: Draft | Date: 2026-11-11 | Base: [VROOM-Session](./VROOM-Session.md)
 
-All four types can run over the same xumux connection.
+The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used as described in RFC 2119.
 
-> **Pending alignment with VROOM-Session.** This document predates it. Its own HELLO, authentication and TLV header overlap with SESSION_HELLO, xumux `auth` and the xumux frame Type, and will be aligned in its next revision.
+VROOM-Terminal runs programs on a host's pseudo-terminals. A person gets the PTY's bytes, untouched, for their own terminal to draw, with Kitty keyboard, Kitty graphics and Sixel passing through. An agent gets the screen the host keeps by emulating the terminal: its text, cursor and changes, and actions on it with guards and act results, so it never has to emulate a terminal itself.
 
-**Implementation note:** control TLV with CBOR or JSON bodies, and raw PTY bytes, are **channel codecs** on xumux, not mux-framer encodings. See [I/O stack](./docs/io-stack.md).
+All four types can run over the same xumux connection, with one session and one lease table.
 
----
+**Profile:** `vroom-terminal/1`. Each terminal is a surface with the ID `pty:<n>`. Its logical unit is the **cell**: `x` is the column and `y` the row, from `0` at the top left of the screen.
 
-## Core Channel Types
+**Implementation note:** each channel's payload format is a **channel codec** on xumux, decoded after demux. See [I/O stack](./docs/io-stack.md).
 
-| Channel | Plane | Description |
-|---------|-------|-------------|
-| `vroom.terminal.control` | Control | Negotiation, authentication, PTY setup, signals, resize, environment, exit status, etc. |
-| `vroom.terminal.pty` | Data | Raw, bidirectional, 8-bit clean byte stream connected directly to the server-side PTY master |
-
-### Why `vroom.terminal.pty` (not `.tty`)?
-
-**PTY = Pseudo Terminal** (specifically the master side). This is the precise technical term used in operating systems and libraries when allocating a full-featured terminal with job control, signals (SIGWINCH, etc.), and process management.
-
-- The shell runs on the **slave** side; the protocol speaks to the **master**.
-- Using `.pty` is clearer for implementers and consistent with SSH (`pty-req`), libraries (`portable-pty`, `creack/pty`, etc.).
+**Changes from 0.2.0:** this revision aligns Terminal with VROOM-Session. Its own HELLO, authentication and 8-byte TLV header are gone: the session's handshake, xumux `auth` and xumux message types replace them. Terminals are surfaces under the session's leases. Agent access (§5) is new.
 
 ---
 
-## 1. Detailed Message Formats (TLV Structure) for `vroom.terminal.control`
+## 1. Goals and non-goals
 
-All messages on the control channel use this binary TLV header (8 bytes):
+- People get a real terminal: every byte of the program's output, unchanged, so their own terminal's features work.
+- Agents get the screen, not a byte stream: they read text, wait for output to settle or for something to appear, and act by keys and text, as they do in the other types.
+- One vocabulary with the other types: surfaces, leases, guards, settling and the act result come from VROOM-Session.
+- Several terminals on one connection, and a terminal that outlives the connection that opened it.
 
-**Header:**
+Not goals: file transfer and port forwarding (§9), and replacing SSH's user and host authentication.
 
-| Field | Size | Type | Description |
-|-------|------|------|-------------|
-| type | 4 bytes | uint32 | Message type (big-endian) |
-| length | 4 bytes | uint32 | Payload length only (big-endian) |
+---
 
-### Core Message Types
+## 2. Channels
 
-| Type (hex) | Name | Direction | Payload Type | Description |
-|------------|------|-----------|--------------|-------------|
-| `0x00000001` | HELLO | Both | CBOR/JSON | Version handshake |
-| `0x00000002` | CAPABILITY_OFFER | Both | CBOR | Capability negotiation |
-| `0x00000003` | CAPABILITY_SELECT | Server → Client | CBOR | Final agreed capabilities |
-| `0x00000010` | AUTH_REQUEST | Client → Server | CBOR | Authentication |
-| `0x00000020` | PTY_REQUEST | Client → Server | CBOR | Allocate PTY |
-| `0x00000021` | PTY_RESPONSE | Server → Client | CBOR | PTY allocation result |
-| `0x00000030` | WINDOW_RESIZE | Client → Server | Binary struct | rows, cols, xpix, ypix |
-| `0x00000031` | SIGNAL | Client → Server | uint8 | POSIX signal number |
-| `0x00000040` | SET_ENV | Client → Server | CBOR map | Environment variables |
-| `0x00000050` | SHELL_REQUEST | Client → Server | CBOR | Start shell |
-| `0x00000051` | EXEC_REQUEST | Client → Server | CBOR | Execute command |
-| `0x000000F0` | EXIT_STATUS | Server → Client | CBOR | Exit code + signal |
-| `0x000000FF` | ERROR | Both | CBOR | Error reporting |
+| Channel | Requested delivery | Purpose |
+|---|---|---|
+| `vroom.terminal.control` | Reliable, ordered | Everything in [§4](#4-messages) |
+| `vroom.terminal.pty.<n>` | Reliable, ordered | The terminal's bytes: output to the client, input to the program ([§6](#6-the-byte-stream)) |
 
-### WINDOW_RESIZE (0x00000030) — Binary Payload
+The client opens `vroom.terminal.control`. The host opens `vroom.terminal.pty.<n>` when a client asks for a terminal's bytes (PTY_ATTACH), and a client may attach to several terminals at once.
 
-Simple binary struct (no CBOR):
+---
 
-| Field | Size | Type | Description |
-|-------|------|------|-------------|
-| rows | 2 bytes | uint16 | Terminal rows |
-| cols | 2 bytes | uint16 | Terminal columns |
-| pixel_width | 2 bytes | uint16 | Pixel width (0 if unknown) |
-| pixel_height | 2 bytes | uint16 | Pixel height (0 if unknown) |
+## 3. Handshake
 
-Complex messages (PTY_REQUEST, capabilities, auth, etc.) use **CBOR** (preferred) or JSON for development.
+TERM_HELLO answers the client's TERM_HELLO with what the host can do. The client describes the terminal it draws in, if it has one, so that the host can tell programs what they may use.
 
-**Control Encoding:** The HELLO message is always sent as JSON (for bootstrapping). The client includes a `control_encoding` field listing supported encodings in preference order. The server's HELLO response selects one, and all subsequent messages use that encoding. This negotiation mechanism is now part of [VROOM-Session](./VROOM-Session.md).
-
-HELLO example:
+Client:
 
 ```json
 {
-  "protocol": "vroom-terminal",
-  "version": 1,
-  "control_encoding": ["cbor", "json"]
+  "terminal": { "name": "xterm-kitty", "truecolor": true, "unicode_version": "15.1" },
+  "features": ["kitty_keyboard", "kitty_graphics", "sixel", "synchronized_output", "bracketed_paste", "osc52_clipboard", "hyperlinks"]
 }
 ```
 
-Server response:
+Host:
 
 ```json
 {
-  "protocol": "vroom-terminal",
-  "version": 1,
-  "control_encoding": "cbor"
+  "shells": true,
+  "exec": true,
+  "agent": ["screen", "changes", "act"],
+  "scrollback": 10000,
+  "features": ["kitty_keyboard", "kitty_graphics", "bracketed_paste", "osc52_clipboard"]
 }
 ```
 
-After HELLO, all subsequent control messages on `vroom.terminal.control` use the selected encoding.
+| Field | Description |
+|---|---|
+| `terminal` | The client's terminal. The host uses `name` for `TERM` when the client opens a terminal, unless the request names `term` |
+| `features` (client) | What the client's terminal can draw or send |
+| `shells`, `exec` | Whether the host starts a login shell, or a command, on request |
+| `agent` | The agent access offered ([§5](#5-agent-access)) |
+| `scrollback` | Lines of scrollback the host keeps per terminal, `0` for none |
+| `features` (host) | The features the host's emulator understands, so that agents see them on the screen too |
 
 ---
 
-## 2. Exact Capability Negotiation Schema
+## 4. Messages
 
-Capability exchange occurs via CAPABILITY_OFFER + CAPABILITY_SELECT.
+On `vroom.terminal.control`. Requests carry `request_id`, and errors are Session ERRORs ([§9](./VROOM-Session.md#9-error-codes)).
 
-Schema (shown as JSON for readability — transmitted in the negotiated `control_encoding`):
+| Type | Name | Dir | Body |
+|---|---|---|---|
+| `0x01` | TERM_HELLO | Both | [§3](#3-handshake) |
+| `0x02` | PTY_LIST | Both | C→S: nothing. S→C: `ptys`, each `{id, title, rows, cols, command, running, exit?}` |
+| `0x03` | PTY_OPEN | C→S | `shell?: true` or `command` and `args`, `cwd?`, `env?`, `term?`, `rows`, `cols`, `xpix?`, `ypix?`. Answered with PTY_STATE |
+| `0x04` | PTY_STATE | S→C | `pty`, `state` (`opened`, `exited`, `closed`), `exit_code?`, `signal?`. Sent in answer and when a terminal's program exits |
+| `0x05` | PTY_CLOSE | C→S | `pty`: hangs the terminal up (SIGHUP) and removes it |
+| `0x06` | PTY_ATTACH | C→S | `pty`: the host opens `vroom.terminal.pty.<n>` ([§6](#6-the-byte-stream)) |
+| `0x07` | RESIZE | C→S | `pty`, `rows`, `cols`, `xpix?`, `ypix?` |
+| `0x08` | SIGNAL | C→S | `pty`, `signal` by name: `INT`, `TERM`, `HUP`, `QUIT`, `TSTP`, `CONT`, `WINCH`, `KILL` |
+| `0x10` | SCREEN_REQ | C→S | `pty`, `scrollback?` (lines before the screen), `styles?`, `if_newer_than?` |
+| `0x11` | SCREEN | S→C | [§5.1](#51-the-screen) |
+| `0x12` | CHANGES_REQ | C→S | `pty`, `since` (a `rev`) |
+| `0x13` | CHANGES | S→C | `rev`, `rows` (changed row indices), or `too_old: true` |
+| `0x14` | ACT | C→S | `pty`, `action`, `args`, `guard?`, `wait?` ([§5.3](#53-actions)) |
+| `0x15` | ACT_RESULT | S→C | The [act result](./VROOM-Session.md#7-the-act-result) |
+
+Opening, closing, resizing, signalling, input and actions need the terminal's lease ([Session §4](./VROOM-Session.md#4-the-control-lease)). PTY_OPEN needs none and gives the opener no lease. Watching (PTY_LIST, PTY_ATTACH, SCREEN_REQ, CHANGES_REQ) needs none. A terminal whose program has exited stays listed, with its last screen, until PTY_CLOSE.
+
+---
+
+## 5. Agent access
+
+The host feeds each terminal's output to a terminal emulator as it arrives and keeps the result: the screen, the cursor, the modes the program has set, and up to `scrollback` lines above the screen. Agents read and act on that.
+
+### 5.1 The screen
 
 ```json
 {
-  "protocol_version": 1,
-  "terminal": {
-    "name": "kitty",
-    "unicode_version": "15.1",
-    "truecolor": true
-  },
-  "kitty": {
-    "keyboard": {
-      "supported_levels": [1, 2, 3],
-      "preferred_level": 3
-    },
-    "graphics": true,
-    "sixel": true,
-    "synchronized_output": true
-  },
-  "mouse": ["sgr", "kitty", "xterm"],
-  "features": [
-    "bracketed_paste",
-    "osc52_clipboard",
-    "focus_reporting",
-    "hyperlinks",
-    "progress_indicator"
-  ],
-  "extensions": {
-    "structured_keys": true,
-    "reconnect": true,
-    "zstd_compression": true
-  }
+  "rev": 52,
+  "rows": 24, "cols": 80,
+  "cursor": { "x": 12, "y": 3, "visible": true },
+  "alternate": false,
+  "title": "vim notes.md",
+  "lines": ["$ ls", "notes.md  todo.txt", "$ vim notes.md", ""],
+  "scrollback": ["…"],
+  "styles": [[{ "x": 0, "w": 8, "fg": "#5fd7ff", "bold": true }]]
 }
 ```
 
-The server replies with **CAPABILITY_SELECT**, containing the final intersection of supported features (especially Kitty keyboard level and graphics).
+| Field | Description |
+|---|---|
+| `rev` | The terminal's revision ([Session §5](./VROOM-Session.md#5-revisions-and-guards)): it increases with any change to the screen, scrollback, cursor or title |
+| `lines` | The screen's rows as text, one string each, without trailing spaces. A wide character takes two cells and appears once |
+| `alternate` | The program is using the alternate screen, as full-screen programs do. Scrollback then belongs to the main screen |
+| `scrollback` | Present when asked for: the lines above the screen, oldest first |
+| `styles` | Present when asked for: per row, runs of cells with non-default styling |
 
----
+`if_newer_than` answers `{rev, unchanged: true}` when nothing changed since.
 
-## 3. State Machine
+### 5.2 Settling and waiting
 
-```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'primaryTextColor': '#000000', 'secondaryTextColor': '#000000', 'tertiaryTextColor': '#000000', 'noteTextColor': '#000000', 'primaryColor': '#909090', 'secondaryColor': '#808080', 'tertiaryColor': '#707070', 'lineColor': '#404040', 'stateLabelColor': '#000000', 'compositeBackground': '#a0a0a0'}}}%%
-stateDiagram-v2
-    [*] --> Disconnected
-    Disconnected --> ControlOpen: xumux + control channel
-    ControlOpen --> HelloExchange: HELLO
-    HelloExchange --> CapabilityNegotiation: CAPABILITY_OFFER
-    CapabilityNegotiation --> Authenticating: CAPABILITY_SELECT
-    Authenticating --> PTYRequest: Auth success
-    PTYRequest --> PTYAllocated: PTY_RESPONSE
-    PTYAllocated --> SessionActive: Open vroom.terminal.pty + SHELL/EXEC
-    SessionActive --> SessionActive: Data flow + resize / signals
-    SessionActive --> Closing: EXIT_STATUS or CLOSE
-    Closing --> Disconnected: Cleanup
+For Terminal, **changed** in [Session §6](./VROOM-Session.md#6-settling) means the program wrote output that changed the screen or cursor. An `ignore` region is in cells.
 
-    Authenticating --> Disconnected: Auth failure
-    PTYRequest --> Disconnected: PTY denied
-    SessionActive --> PTYAllocated: Reconnect (xumux)
+WAIT and `wait` on ACT also accept `until: "text"`, which is met when the screen (or, with `scrollback: true`, its scrollback) contains `text`, a plain string, or matches `regex`:
+
+```json
+{ "until": "text", "text": "$ ", "timeout_ms": 10000 }
 ```
 
-**Key points:**
+A program that exits also ends a wait, with `settled.state: "exited"`.
 
-- **CapabilityNegotiation** is mandatory
-- `vroom.terminal.pty` channel is opened only after successful PTY_RESPONSE
-- Reconnection (via xumux) can resume directly into SessionActive
+### 5.3 Actions
 
----
+| `action` | `args` | Effect |
+|---|---|---|
+| `text` | `text` | Types the text as keystrokes would. `\n` is Return |
+| `key` | `key`: a chord such as `ctrl+c`, `up`, `shift+tab`, `f5`, `alt+b` | One key, encoded as the program asked ([§5.4](#54-keys)) |
+| `paste` | `text` | Pastes, bracketed if the program turned bracketed paste on |
+| `scroll` | `lines` | Scrolls the agent's view of scrollback; the program sees nothing |
 
-## 4. Comparison: VROOM-Terminal vs SSH vs Mosh
+Each returns the act result with `rung: "none"` and, when it waited, `changes.regions` as the changed rows: `{x: 0, y: <row>, w: <cols>, h: 1}`.
 
-| Feature | VROOM-Terminal | OpenSSH | Mosh |
-|---------|---------------|---------|------|
-| Transport | Any (WS, WebRTC, QUIC, TCP…) | TCP only | UDP only |
-| Kitty Keyboard Protocol | Native (Level 3 first-class) | Passthrough only | None |
-| Kitty Graphics / Sixel | Full transparent passthrough | Works | No |
-| Browser / WebRTC native | Excellent | Poor | No |
-| Reconnection / Roaming | Excellent (xumux) | Poor | Excellent |
-| Multiplexing (multiple shells) | Native & clean | Good (ControlMaster) | Single session |
-| Latency on lossy lines | Very good | Good | Excellent (predictive) |
-| Unified with Graphical | Yes (same connection) | No | No |
-| SFTP / Forwarding | Native channels | Excellent | None |
-| Modern terminal experience | Best-in-class | Good | Basic |
+A guard's `scope` is `surface` (any change) or `region` (a change in the given cells). `node` is refused with `4605`.
+
+### 5.4 Keys
+
+The host encodes an agent's keys by the modes the program has set: application cursor and keypad modes, bracketed paste, and the Kitty keyboard protocol at the level the program pushed. An agent names keys; it never writes escape sequences. A key the encoding can't express is refused with `4605`.
+
+A person's input on the byte stream is not encoded: their terminal has already encoded it.
 
 ---
 
-## 5. Reference Implementation Recommendations
+## 6. The byte stream
 
-### Server (`vroom-terminald`)
+On `vroom.terminal.pty.<n>`:
 
-- **Strongly recommended:** Rust (`tokio` + `portable-pty` or `pty-process` + `ciborium` for CBOR)
-- **Alternative:** Go (`github.com/creack/pty`)
+| Type | Name | Dir | Body |
+|---|---|---|---|
+| `0x01` | OUTPUT | S→C | Bytes the program wrote, as written |
+| `0x02` | INPUT | C→S | Bytes for the program, as the client's terminal produced them |
+| `0x03` | REDRAW | S→C | Bytes that draw the current screen from blank, sent first on attaching |
 
-### Clients
+- The host MUST pass output through unchanged, in order, including sequences its emulator doesn't understand.
+- On attaching, the host sends REDRAW, then OUTPUT from that point. A client that reconnects to a running terminal sees its screen at once.
+- INPUT needs the terminal's lease. Without it the host drops the input and reports `4600` on the session, at most once a second.
+- OUTPUT that a slow client can't take is not dropped: xumux flow control holds the program back. A host MAY instead close a channel that stays full, so that one slow viewer cannot stall the program for everyone.
 
-- **Web:** TypeScript + enhanced xterm.js (or custom renderer) with Kitty keyboard/graphics support
-- **Native / Desktop:** Rust (share code with server) or embed Kitty/WezTerm components
-- **CLI:** `vroom term user@host` (SSH-like interface)
+---
 
-### Recommended Architecture
+## 7. Leases and people
 
-- Hosts may run one process per VROOM type; a client sees the same protocol either way
-- Shared `vroom-protocol` and xumux libraries
-- Build thin gateways (`vroom-to-ssh` and `ssh-to-vroom`) for easy adoption
+As in every type, a person outranks an agent ([Session §4](./VROOM-Session.md#4-the-control-lease)). A person typing into a terminal holds its lease, and an agent's actions there fail with `4600` until they release it. Watching is open to both: an agent may read the screen while a person types, and a person may watch an agent work.
 
-### Development Phases (suggested)
+---
 
-1. Control channel + raw PTY passthrough
-2. Capability negotiation + Kitty keyboard transparency
-3. Authentication + exit status
-4. SFTP, agent forwarding, reconnection
-5. Hybrid graphical+terminal sessions
+## 8. Security
+
+- A terminal runs programs as the host's user. A host MUST NOT offer terminals unless configured to, and SHOULD limit `exec` and `shells` to what it was configured for.
+- ACTIVITY ([Session §8](./VROOM-Session.md#8-audit)) names the terminal and the action, never the text typed or pasted.
+- The screen shows what the program printed. Input the program doesn't echo, such as a password prompt's, never appears on the screen; anything printed does, secrets included.
+- OSC 52 clipboard writes from a program reach a person's clipboard only through their own terminal's policy. A host MUST NOT apply them to its own clipboard.
+
+---
+
+## 9. Later
+
+- File transfer and port forwarding, as further channels.
+- Gateways: `vroom-to-ssh` and `ssh-to-vroom`.
+- Hybrid sessions: a terminal and a Graphical display in one view.
+
+---
+
+## 10. Comparison (informative)
+
+| | VROOM-Terminal | OpenSSH | Mosh |
+|---|---|---|---|
+| Transport | Any xumux binding | TCP | UDP |
+| Agents read the screen | Yes (§5) | No | No |
+| Kitty keyboard and graphics | Passed through | Passed through | No |
+| Reconnect to a running terminal | Yes (REDRAW) | No | Yes |
+| Several terminals on one connection | Yes | Yes (channels) | No |
+| With Graphical and Browsable | One connection and session | No | No |
 
 ---
 
 ## Status
 
-VROOM-Terminal is in active development. The protocol is draft and subject to change.
+Draft. The agent access in §5 is new in 0.3.0 and expected to change as hosts implement it.
 
 ## License
 
