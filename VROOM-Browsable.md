@@ -36,7 +36,8 @@ Not goals: defining LLM tool schemas, or being a test runner.
 | `vroom.browsable.control` | Reliable, ordered | Everything in [§4](#4-messages) |
 | `vroom.browsable.events` | Reliable, ordered | Network and console events, when subscribed |
 | `vroom.browsable.video.<tab>` | See [Graphical §3](./VROOM-Graphical.md#3-video) | The tab's video, in Graphical's video format |
-| `vroom.browsable.feedback` | Reliable, ordered | [Graphical's feedback messages](./VROOM-Graphical.md#34-feedback), naming the numeric tab ID |
+| `vroom.browsable.video.selected` | See [Graphical §3](./VROOM-Graphical.md#3-video) | The selected tab's video, whichever tab that is ([§7](#7-video)) |
+| `vroom.browsable.feedback` | Reliable, ordered | [Graphical's feedback messages](./VROOM-Graphical.md#34-feedback), naming the numeric tab ID, or `"selected"` for the selected tab's stream |
 | `vroom.browsable.audio.<tab>` | See [Graphical §6](./VROOM-Graphical.md#6-audio) | The tab's audio |
 | `vroom.browsable.pointer` | Unreliable, unordered | [Graphical's pointer format](./VROOM-Graphical.md#41-pointer-channel) |
 | `vroom.browsable.input` | Reliable, ordered | [Graphical's input format](./VROOM-Graphical.md#42-input-channel) |
@@ -100,9 +101,9 @@ Structured, on `vroom.browsable.control`. Every action takes a `request_id`, and
 | `0xC2` | STORAGE_SET | C→S | `context`, the state |
 | `0xC3` | EVALUATE | C→S | `tab`, `frame?`, `expression`. Refused unless `evaluate` is true |
 | `0xC4` | EVALUATE_RESULT | S→C | `request_id`, `value` or `error` |
-| `0xC5` | STREAM_START | C→S | As [Graphical](./VROOM-Graphical.md#31-starting-a-stream), with `tab` for `surface` |
-| `0xC6` | STREAM_STOP | C→S | `tab` |
-| `0xC7` | STREAM_STATE | S→C | As Graphical, with `tab` |
+| `0xC5` | STREAM_START | C→S | As [Graphical](./VROOM-Graphical.md#31-starting-a-stream), with `tab?` for `surface`. Without `tab`, the selected tab ([§7](#7-video)) |
+| `0xC6` | STREAM_STOP | C→S | `tab?`; without it, the selected tab's stream |
+| `0xC7` | STREAM_STATE | S→C | As Graphical, with `tab`, and `following: true` for the selected tab's stream. Also sent unasked when the tab a stream shows changes or the stream stops |
 
 On `vroom.browsable.events`: `0xD0` NETWORK_EVENT (`tab`, `id`, `phase`, `method`, `url`, `status?`, `bytes?`) and `0xD1` CONSOLE_EVENT (`tab`, `level`, `text`, `url?`, `line?`). Bodies are metadata only. Hosts MUST NOT include request or response bodies or credential headers.
 
@@ -153,7 +154,9 @@ Tab video follows [Graphical's rules](./VROOM-Graphical.md#3-video), including d
 
 - `screencast` delivers compressed frames that the host re-encodes, so text passes through two lossy steps. It works on every engine.
 - `tab_capture` takes frames from the browser's own capture path and SHOULD be preferred where available.
-- A host follows the selected tab unless the client pinned one. When the tab changes, it sends VIDEO_CONFIG and a keyframe.
+- STREAM_START with `tab` pins the stream to that tab, on `vroom.browsable.video.<tab>`. Without `tab`, the host follows the selected tab on `vroom.browsable.video.selected`. When the selected tab changes, the stream sends VIDEO_CONFIG and a keyframe on the same channel, and the host sends STREAM_STATE naming the new `tab`.
+- The selected tab is the one a person sees in a visible browser. Where there is none, as in a headless one, it is the newest open tab: a tab opened later, including one a page opened, becomes the selected one, and when it closes, the newest still open does.
+- When a pinned tab closes or crashes, its stream stops, and the host sends STREAM_STATE with `stopped: true`.
 
 Hosts SHOULD stop capturing when no viewer is connected, and report `video_sources` truthfully: agents without viewers use SCREENSHOT.
 
