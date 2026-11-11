@@ -81,19 +81,19 @@ Host:
 
 ## 4. Messages
 
-On `vroom.terminal.control`. Requests carry `request_id`, and errors are Session ERRORs ([§9](./VROOM-Session.md#9-error-codes)).
+On `vroom.terminal.control`. Requests carry `request_id`, and errors are Session ERRORs ([§9](./VROOM-Session.md#9-error-codes)). The host MAY answer requests in any order, so every reply and every error about a request echoes its `request_id`, and a reply about a terminal also names its `pty`.
 
 | Type | Name | Dir | Body |
 |---|---|---|---|
 | `0x01` | TERM_HELLO | Both | [§3](#3-handshake) |
 | `0x02` | PTY_LIST | Both | C→S: nothing. S→C: `ptys`, each `{id, title, rows, cols, command, running, exit?, session, window, source?, stream?}` |
-| `0x03` | PTY_OPEN | C→S | `shell?: true` or `command` and `args`, `cwd?`, `env?`, `term?`, `rows`, `cols`, `xpix?`, `ypix?`. Answered with PTY_STATE |
+| `0x03` | PTY_OPEN | C→S | `shell?: true` or `command` and `args`, `cwd?`, `env?`, `term?`, `rows`, `cols`, `xpix?`, `ypix?`. Makes a new session with one window holding the terminal. Answered with PTY_STATE (with its `session` and `window`) |
 | `0x04` | PTY_STATE | S→C | `pty`, `state` (`opened`, `exited`, `closed`), `exit_code?`, `signal?`. Sent in answer and when a terminal's program exits |
 | `0x05` | PTY_CLOSE | C→S | `pty`: hangs the terminal up (SIGHUP) and removes it |
 | `0x06` | PTY_ATTACH | C→S | `pty`: the host opens `vroom.terminal.pty.<n>` ([§6](#6-the-byte-stream)) |
-| `0x07` | RESIZE | C→S | `pty`, `rows`, `cols`, `xpix?`, `ypix?` |
+| `0x07` | RESIZE | C→S | `pty`, `rows`, `cols`, `xpix?`, `ypix?`: the size of a terminal that is its window's only pane. A pane in a split window is refused with `4605`: its window is resized instead (WINDOW_RESIZE) |
 | `0x08` | SIGNAL | C→S | `pty`, `signal` by name: `INT`, `TERM`, `HUP`, `QUIT`, `TSTP`, `CONT`, `WINCH`, `KILL` |
-| `0x10` | SCREEN_REQ | C→S | `pty`, `scrollback?` (lines before the screen), `styles?`, `if_newer_than?` |
+| `0x10` | SCREEN_REQ | C→S | `pty`, `scrollback?` (how many lines of scrollback, counted up from the screen), `scrollback_from?` (lines above the screen to start from, `0` by default, to page further back), `styles?`, `if_newer_than?` |
 | `0x11` | SCREEN | S→C | [§5.2](#52-the-screen) |
 | `0x12` | CHANGES_REQ | C→S | `pty`, `since` (a `rev`) |
 | `0x13` | CHANGES | S→C | `rev`, `rows` (changed row indices), or `too_old: true` |
@@ -113,8 +113,9 @@ On `vroom.terminal.control`. Requests carry `request_id`, and errors are Session
 | `0x27` | ZOOM | C→S | `pty`, `on`: the pane fills its window, or not |
 | `0x28` | RENAME | C→S | `session`, `window` or `pty`, and `name` |
 | `0x29` | KILL | C→S | `session`, `window` or `pty`: closes it and everything in it |
+| `0x2A` | WINDOW_RESIZE | C→S | `window`, `rows`, `cols`, `xpix?`, `ypix?`: the whole window, its panes taking their shares of it |
 
-Opening, closing, resizing, signalling, input, actions and arranging ([§7.3](#73-leases)) need the terminal's lease ([Session §4](./VROOM-Session.md#4-the-control-lease)). PTY_OPEN needs none and gives the opener no lease. Watching (PTY_LIST, PTY_ATTACH, SCREEN_REQ, CHANGES_REQ) needs none. A terminal whose program has exited stays listed, with its last screen, until PTY_CLOSE.
+Opening, closing, resizing, signalling, input, actions and arranging ([§7.3](#73-leases)) need the terminal's lease ([Session §4](./VROOM-Session.md#4-the-control-lease)). PTY_OPEN and SESSION_NEW need none, as they make a session of their own and change no one else's, and give the opener no lease. Watching (PTY_LIST, PTY_ATTACH, SCREEN_REQ, CHANGES_REQ) needs none. A terminal whose program has exited stays listed, with its last screen, until PTY_CLOSE.
 
 ---
 
@@ -124,7 +125,7 @@ The host feeds each terminal's output to a terminal emulator as it arrives and k
 
 ### 5.1 Geometry
 
-A terminal is a grid of cells, and also a picture in pixels. Its cell size in pixels comes from the client that sized it (PTY_OPEN's or RESIZE's `xpix` and `ypix`, divided by `cols` and `rows`). A host that renders uses the same size, and one that hasn't been told a size MAY assume its own.
+A terminal is a grid of cells, and also a picture in pixels. Its cell size in pixels comes from the client that sized it (`xpix` and `ypix` of PTY_OPEN, RESIZE or WINDOW_RESIZE, divided by `cols` and `rows`). A host that renders uses the same size, and one that hasn't been told a size MAY assume its own.
 
 - Positions are in cells, and MAY add a pixel offset within the cell, `{x, y, px?, py?}`, as Kitty image placements and pixel-precise pointers have.
 - A pixel position is `x * cell_w + px` across and `y * cell_h + py` down, from the top left of the screen.
@@ -188,11 +189,10 @@ A program that exits also ends a wait, with `settled.state: "exited"`.
 | `move` | `at` | The pointer moves there, if the program asked for motion |
 | `drag` | `from`, `to`, `button?` | Press, move and release |
 | `wheel` | `at`, `dy`, `dx?` | Wheel steps; positive `dy` scrolls down |
-| `scroll` | `lines` | Scrolls the agent's view of scrollback; the program sees nothing |
 
 Each returns the act result with `rung: "none"` and, when it waited, `changes.regions` as the changed cells: whole rows `{x: 0, y: <row>, w: <cols>, h: 1}`, and the cells of images that changed.
 
-A guard's `scope` is `surface` (any change) or `region` (a change in the given cells). `node` is refused with `4605`.
+A guard's `scope` is `surface` (any change) or `region`, which names its cells: `{"if_rev": 41, "scope": "region", "region": {"x": 0, "y": 20, "w": 80, "h": 4}}`, refused if any of them changed. `node` is refused with `4605`.
 
 ### 5.5 Keys and the pointer
 
@@ -215,7 +215,8 @@ On `vroom.terminal.pty.<n>`:
 | `0x03` | REDRAW | S→C | Bytes that draw the current screen from blank, images included, sent first on attaching |
 
 - The host MUST pass output through unchanged, in order, including sequences its emulator doesn't understand.
-- On attaching, the host sends REDRAW, then OUTPUT from that point. A client that reconnects to a running terminal sees its screen at once: its text, styles and sized text, and its images, transmitted and placed again. A host keeps the image data placements need for as long as they're on the screen or in scrollback.
+- On attaching, the host sends REDRAW, then OUTPUT from that point. A client that reconnects to a running terminal sees its screen at once: its text, styles and sized text, and its images, transmitted and placed again.
+- REDRAW also restores the modes the program set, so that the client's terminal sends what the program expects: application cursor and keypad modes, bracketed paste, the Kitty keyboard flags in force, mouse reporting modes, focus reporting, the alternate screen, the scroll region, the cursor's shape and visibility, and the title. A host keeps the image data placements need for as long as they're on the screen or in scrollback.
 - Graphics a client's terminal can't show (a Kitty image to a terminal without Kitty graphics, say, from its TERM_HELLO) are still passed through: the program asked for them, and a host doesn't rewrite output. A program should check what the terminal supports, as it would locally.
 - INPUT needs the terminal's lease. Without it the host drops the input and reports `4600` on the session, at most once a second.
 - OUTPUT that a slow client can't take is not dropped: xumux flow control holds the program back. A host MAY instead close a channel that stays full, so that one slow viewer cannot stall the program for everyone.
@@ -251,11 +252,19 @@ A host keeps **sessions**. A session has **windows**, in order, one of them acti
 
 Every client sees the same sessions, windows and layouts. Attaching to a session is subscribing to MUX_STATE and attaching (PTY_ATTACH) to the panes it shows. Detaching is closing those channels: the session runs on.
 
-A window has one size. When viewers' terminals differ, it takes the size of the last client to take the session's lease or to send RESIZE for one of its panes. Other viewers draw it in theirs as best they can, by cropping or padding.
+A window has one size, set by WINDOW_RESIZE (or RESIZE, for a window of one pane), which needs the session's lease. Taking a lease doesn't resize anything: a client that wants the window to fit its own terminal asks for it. Viewers whose terminals differ draw the window in theirs as best they can, by cropping or padding.
 
 ### 7.3 Leases
 
-A lease on a session (`tsession:<n>`) covers its windows and panes, as a lease on a display covers its windows. Arranging (SPLIT, ARRANGE, FOCUS, ZOOM, RENAME, KILL, WINDOW_NEW) needs the session's lease. Input and actions on one pane need that pane's lease, or its session's. A person may hold a session while an agent works one pane of another, and a person's request takes either from an agent as usual.
+A lease on a session (`tsession:<n>`) covers its windows and panes, as a lease on a display covers its windows. Arranging (SPLIT, ARRANGE, FOCUS, ZOOM, RENAME, KILL, WINDOW_NEW, WINDOW_RESIZE) needs the session's lease. Input and actions on one pane need that pane's lease, or its session's.
+
+A pane has one holder at a time, by its own lease or its session's:
+
+- A request for a session's lease conflicts with every lease on its panes held by others, and a request for a pane's lease conflicts with its session's lease held by another. Each conflict is settled as [Session §4](./VROOM-Session.md#4-the-control-lease) settles a held surface: a person's request takes the leases from agents, and an agent's waits (`wait_ms`) or fails with `4604`.
+- Leases taken from an agent this way end at once, and LEASE_STATE says so. Its actions and input after that fail with `4600`.
+- A client holding a session's lease may also hold its panes' leases. It needs nothing more to act on them.
+
+So a person who takes a session stops every agent in it, and an agent can work one pane while a person holds a different session.
 
 ### 7.4 Drawing (informative)
 
