@@ -38,6 +38,8 @@ Structured messages use CBOR by default and JSON where negotiated. SESSION_HELLO
 | `0x01` | SESSION_HELLO | C→S | Version, encodings, client identity |
 | `0x02` | SESSION_WELCOME | S→C | Selected encoding, offered types, surfaces |
 | `0x03` | SURFACES | S→C | The surfaces changed |
+| `0x04` | SURFACE_CREATE | C→S | Create an agent display (§3) |
+| `0x05` | SURFACE_CLOSE | C→S | Close one (§3) |
 | `0x10` | LEASE_REQUEST | C→S | Ask to act on a surface |
 | `0x11` | LEASE_RELEASE | C→S | Give a lease up |
 | `0x12` | LEASE_STATE | S→C | Who holds what, sent on every change |
@@ -90,6 +92,15 @@ A **surface** is something that can be observed and acted on. Its ID is a string
   "scale": 2.0
 }
 ```
+
+A host MAY offer **agent displays**: displays of its own that no physical screen shows, listed with the others and marked `"virtual": true`, so that an agent can work without taking over the person's screens. A host that keeps an agent display's input apart from the person's, sending it to the applications on that display without moving the local pointer or changing the local focus, says `"input": "separate"`; otherwise `"input": "shared"`, and the lease decides who has the one pointer. With separate input, a person and an agent can each work on their own displays at the same time ("side by side"). A host MAY create agent displays at start, or when asked:
+
+| Type | Name | Dir | Body |
+|---|---|---|---|
+| `0x04` | SURFACE_CREATE | C→S | `kind: "display"`, `w`, `h`. Answered by SURFACES with the new surface, or ERROR (`4603` if the host doesn't allow it, `4605` if it can't) |
+| `0x05` | SURFACE_CLOSE | C→S | `surface`: one this client created. Answered by SURFACES |
+
+A host SHOULD close the agent displays a client created when it disconnects.
 
 **Coordinates are logical and scoped to a surface**, with the origin at its top-left. A logical unit is a macOS point, a Windows DIP, a Wayland logical pixel or a CSS pixel. Every coordinate names its surface, so multiple monitors and HiDPI are never ambiguous.
 

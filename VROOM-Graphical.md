@@ -65,6 +65,8 @@ On `vroom.graphical.control`:
 
 The host opens `vroom.graphical.video.<surface>` after STREAM_START. H.264 is the baseline, and every host and client MUST support it. Clients discover decoders at run time, with `VideoDecoder.isConfigSupported()` in browsers.
 
+A host MUST use the first codec in `codecs` that it can encode, and H.264 if it can encode none of them or `codecs` is absent, and report the one it chose in STREAM_STATE. A codec string names a chroma format as well as a codec: HEVC's Range Extensions profile (`hvc1.4…`) carries 4:4:4, which keeps coloured text sharp where 4:2:0 can't (§3.3). In one test, on a screen of coloured text, H.264 and HEVC in 4:2:0 stayed at about 27 dB PSNR from 4 to 16 Mbit/s, while HEVC in 4:4:4 reached 30, 35 and 41 dB. Many browsers' decoders can't decode 4:4:4, so a client SHOULD list it only after checking that it can. A host SHOULD list the codec families it encodes in SESSION_WELCOME's `codecs`.
+
 ### 3.2 Messages on the video channel
 
 | Type | Name | Body |
@@ -254,24 +256,26 @@ Hosts MUST report what they cannot do, in SESSION_WELCOME capabilities or with `
 
 People and agents want different things from the same stream. A person controlling a desktop wants it on time, and can do without some of it: a late frame or a late scrap of audio is worth nothing. An agent wants it complete, and can wait: a missed word or a blurred character is wrong, while 200 ms is usually fine.
 
-| Priority | `interactive` | `fidelity` |
-|---|---|---|
-| 1 | Smooth control | Reliable control |
-| 2 | Audio without gaps | Exact images |
-| 3 | Smooth video | Smooth video |
-| 4 | Image quality | Audio for speech recognition |
+| Priority | `interactive` | `fidelity` | `high-performance` |
+|---|---|---|---|
+| 1 | Smooth control | Reliable control | Smooth control |
+| 2 | Audio without gaps | Exact images | Image quality |
+| 3 | Smooth video | Smooth video | Smooth video at 60 fps |
+| 4 | Image quality | Audio for speech recognition | Audio without gaps |
+
+`high-performance` is for a person on a fast local network who wants the remote screen to look and feel local, as dedicated screen-sharing products offer on the same hardware: it spends bandwidth (tens of Mbit/s for a 4K screen) for sharpness.
 
 A client chooses with `profile` in STREAM_START, or with PROFILE on the control channel, which starts no video, for a client that only takes screenshots, acts or listens. It MAY override the settings that have their own fields: `max_fps`, `max_bitrate` and `path` in STREAM_START, `format`, `quality` and `budget_ms` in SCREENSHOT_REQ, and `audio_delivery` in PROFILE. The default is `interactive` for a client of kind `"human"` and `fidelity` for `"agent"` ([Session §2](./VROOM-Session.md#2-messages-on-vroomsession)), but the choice is about the task, not the client: a person reading code may want `fidelity`, and an agent playing a game `interactive`. The host reports what it chose in STREAM_STATE, or in its PROFILE answer, and MUST NOT fail a request for a profile it doesn't support, only report the one it used.
 
-| Setting | `interactive` | `fidelity` |
-|---|---|---|
-| Input | As soon as possible: pointer moves coalesced, the cursor drawn by the viewer | Through ACT with guards and settling ([§5](#5-agent-access)), each with a result |
-| Under congestion | Keep the frame rate, and give up resolution and quality first | Keep quality, and give up frame rate first |
-| Frames in flight | §3.3's limit | §3.3's limit. More would only queue: in one simulation of a congested link, removing the limit raised frame rate from 53 to 55 fps and the 95th percentile of lag from 290 to 1081 ms |
-| Encoder | Low-latency rate control | A minimum bitrate, giving up frame rate first. Exact pixels come from screenshots, since video refinement can't pass the 4:2:0 limit (§3.3) |
-| Exact pixels | Rarely | Lossless screenshots ([§5](#5-agent-access)), with video for knowing when to take them |
-| Audio `delivery` | `"timely"`: unreliable channel, Opus in-band FEC, the receiver conceals losses | `"complete"`: reliable channel, the receiver MUST NOT conceal |
-| Audio format | 48 kHz, as the source has it | 16 kHz mono is enough for most speech recognition |
+| Setting | `interactive` | `fidelity` | `high-performance` |
+|---|---|---|---|
+| Input | As soon as possible: pointer moves coalesced, the cursor drawn by the viewer | Through ACT with guards and settling ([§5](#5-agent-access)), each with a result | As `interactive` |
+| Under congestion | Keep the frame rate, and give up resolution and quality first | Keep quality, and give up frame rate first | Keep the frame rate, and lower the bitrate first; resolution last |
+| Frames in flight | §3.3's limit | §3.3's limit. More would only queue: in one simulation of a congested link, removing the limit raised frame rate from 53 to 55 fps and the 95th percentile of lag from 290 to 1081 ms | §3.3's limit |
+| Encoder | Low-latency rate control | A minimum bitrate, giving up frame rate first. Exact pixels come from screenshots, since video refinement can't pass the 4:2:0 limit (§3.3) | A high bitrate ceiling set by the host, and 4:4:4 where the client listed a codec that carries it (§3.1). Low-latency rate control where it keeps 4:4:4: one hardware encoder tested falls back to 4:2:0 in that mode |
+| Exact pixels | Rarely | Lossless screenshots ([§5](#5-agent-access)), with video for knowing when to take them | Rarely: 4:4:4 at a high bitrate is close |
+| Audio `delivery` | `"timely"`: unreliable channel, Opus in-band FEC, the receiver conceals losses | `"complete"`: reliable channel, the receiver MUST NOT conceal | `"timely"` |
+| Audio format | 48 kHz, as the source has it | 16 kHz mono is enough for most speech recognition | 48 kHz stereo |
 
 **Audio is where the two differ most.** For a person, a gap is worse than a guess. A receiver SHOULD conceal lost packets (Opus decoders do this when told a packet is missing, and in-band FEC recovers single losses from the next packet), and SHOULD use a jitter buffer that adapts to the path. Unlike a video frame, an audio packet can be decoded without the ones before it, so an unreliable channel suits audio even where it didn't suit video ([§3.2](#32-messages-on-the-video-channel)). For speech recognition, a guess is worse than a gap: concealment invents sound, which can become words that weren't said. A `"complete"` receiver MUST NOT conceal, and MUST mark any gap it can't fill.
 
