@@ -315,6 +315,8 @@ Without either, the program has its one terminal, as anywhere else.
 
 Raw mode matters because, in cooked mode, the reply would wait for a newline. Setting raw mode can discard input typed but not yet read.
 
+The reply lands in the input of whatever reads the pane, as any terminal query's reply does. A program that never asked for it, such as a shell while `cat` prints the query, simply reads it as input. That's harmless: the token is useless without a start request from the same reader, which is why the token is needed at all.
+
 #### 7.6.2 Messages
 
 Every message is a JSON object whose `type` names it. The Session's [error codes](./VROOM-Session.md#9-error-codes) apply.
@@ -361,12 +363,15 @@ Host to program:
 - **MUX_STATE shows the subtree as an ordinary split.** Each of the program's panes has `owner`: the surface ID of `main`. A client can tell from it that closing the pane changes a program's layout, and a person doesn't take a program's panes for strays.
 - **Geometry is the host's.** The host places ARRANGE's layout in whole cells, and LAYOUT and RESIZE report what it gave.
 - **RESIZE is the only resize notice for every pane except `main`.** A process has one controlling terminal, so SIGWINCH comes only for `main`. Locally, the new size is also on each pane's PTY (`TIOCGWINSZ`).
-- **No lease is needed for the program's own panes.** That covers the panes it opened, terminal or browser: opening, arranging, focusing, renaming, closing, writing to them and acting on them. It's the program running there, not a client. People and clients with the session's lease may still rearrange, resize, focus and close those panes ([§7.3](#73-leases)). The program hears of it through LAYOUT, FOCUSED and CLOSED, and SHOULD NOT undo it.
-- **Acting on a surface the program didn't make needs that surface's lease.** That means a `display` pane, or a `remote` pane ([§7.7](#77-panes-of-other-types)). Showing one needs no lease. For ACT, and for input typed into such a pane, the host takes the surface's lease for the program as it does for an agent:
-  - the action goes ahead if the lease is free or already the program's;
-  - it fails with `4600` if another holds the lease;
-  - a person's request takes the lease from the program, as from any agent;
-  - the lease ends when the pane closes.
+- **Arranging needs no lease.** The program needs none to open, arrange, focus, rename or close its own panes, or to write to its terminal panes, which is output. It's the program running there, not a client. People and clients with the session's lease may still rearrange, resize, focus and close those panes ([§7.3](#73-leases)). The program hears of it through LAYOUT, FOCUSED and CLOSED, and SHOULD NOT undo it.
+- **The program's actions give way to people.** A program driving a pane that isn't a terminal acts as an agent does ([§8](#8-leases-and-people)).
+  - **Its own panes** (a `browser` tab it opened). Its ACT on one fails with `4600` while a person holds that pane's lease or its session's. So it works the tab freely until a person takes over.
+  - **Surfaces it didn't make** (a `display` or a `remote` pane, [§7.7](#77-panes-of-other-types)). Showing one needs no lease. For the program's ACT on one, the host takes the surface's lease for the program, as it does for an agent:
+    - the action goes ahead if the lease is free or already the program's;
+    - it fails with `4600` if another holds the lease;
+    - a person's request takes the lease from the program, as from any agent;
+    - the lease ends when the pane closes.
+- **What people and clients type into a pane is theirs.** Typing into a pane that isn't a terminal goes to the pane, not to the program ([§7.7](#77-panes-of-other-types)), under the typist's own lease, as on the surface itself. A lease taken for the program never refuses a person's typing.
 - **Input to a program's pane is input like any other.** What a person or an agent types into one of the program's terminal panes reaches the program on that pane, under that pane's lease ([§6](#6-the-byte-stream)).
 
 #### 7.6.4 Children
@@ -406,7 +411,7 @@ When the stream stops making sense, the host closes the program's other panes an
 
 ### 7.7 Panes of other types
 
-A window's layout may hold surfaces of any VROOM type, not only terminals. A leaf's `pane` is a surface ID, and its prefix says its type.
+A window's layout may hold surfaces of any VROOM type, not only terminals. A leaf's `pane` is a surface ID, and its prefix says its type. The prefix is always one of a type served locally (`pty`, `tab`, `display`, `window`). A `remote` pane is served under a local ID of the other surface's own type, so there is no `remote:` prefix.
 
 | OPEN `kind` | Surface | OPEN fields | ACT and EVENT |
 |---|---|---|---|
