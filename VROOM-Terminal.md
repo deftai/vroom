@@ -411,7 +411,7 @@ When the stream stops making sense, the host closes the program's other panes an
 
 ### 7.7 Panes of other types
 
-A window's layout may hold surfaces of any VROOM type, not only terminals. A leaf's `pane` is a surface ID, and its prefix says its type. The prefix is always one of a type served locally (`pty`, `tab`, `display`, `window`). A `remote` pane is served under a local ID of the other surface's own type, so there is no `remote:` prefix.
+A window's layout may hold surfaces of any VROOM type, not only terminals. A leaf's `pane` is a surface ID, and its prefix says its type. The prefix is always that of a surface type this host serves itself, any of [Session §3](./VROOM-Session.md#3-surfaces-and-coordinates)'s (`pty`, `tab`, `display`, `window`, `app`, ...). A `remote` pane is served under a local ID of the other surface's own type, so there is no `remote:` prefix.
 
 | OPEN `kind` | Surface | OPEN fields | ACT and EVENT |
 |---|---|---|---|
