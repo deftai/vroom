@@ -16,7 +16,7 @@ All four types can run over the same xumux connection, with one session and one 
 
 **Implementation note:** each channel's payload format is a **channel codec** on xumux, decoded after demux. See [I/O stack](./docs/io-stack.md).
 
-**Changes from 0.2.0:** this revision aligns Terminal with VROOM-Session. Its own HELLO, authentication and 8-byte TLV header are gone: the session's handshake, xumux `auth` and xumux message types replace them. Terminals are surfaces under the session's leases. Agent access (§5) and multiplexing (§7) are new.
+**Changes from 0.2.0:** this revision aligns Terminal with VROOM-Session. Its own HELLO, authentication and 8-byte TLV header are gone: the session's handshake, xumux `auth` and xumux message types replace them. Terminals are surfaces under the session's leases. Agent access (§5), multiplexing (§7), and programs that own panes of any type (§7.6, §7.7) are new.
 
 ---
 
@@ -27,6 +27,7 @@ All four types can run over the same xumux connection, with one session and one 
 - One vocabulary with the other types: surfaces, leases, guards, settling and the act result come from VROOM-Session.
 - Several terminals on one connection, and a terminal that outlives the connection that opened it.
 - Multiplexing as tmux and its successors do it: sessions of windows of panes, one arrangement shared by every viewer, detached and attached at will. A host may also serve the panes of a multiplexer already running ([§7.5](#75-bridged-multiplexers)).
+- Programs that lay out panes of their own: a program can find out whether its host offers panes, open and arrange them, hear which is focused, and read and write each one, locally or over SSH ([§7.6](#76-programs-that-own-panes)). Panes may be browser tabs, displays and other hosts' surfaces as well as terminals ([§7.7](#77-panes-of-other-types)).
 
 Not goals: file transfer and port forwarding ([§10](#10-later)), and replacing SSH's user and host authentication.
 
@@ -215,7 +216,7 @@ On `vroom.terminal.pty.<n>`:
 | `0x02` | INPUT | C→S | Bytes for the program, as the client's terminal produced them |
 | `0x03` | REDRAW | S→C | Bytes that draw the current screen from blank, images included, sent first on attaching |
 
-- The host MUST pass output through unchanged, in order, including sequences its emulator doesn't understand.
+- The host MUST pass output through unchanged, in order, including sequences its emulator doesn't understand. The one exception is the pane interface's own query and start request, which are addressed to the host ([§7.6.1](#761-finding-the-host)).
 - On attaching, the host sends REDRAW, then OUTPUT from that point. A client that reconnects to a running terminal sees its screen at once: its text, styles and sized text, and its images, transmitted and placed again.
 - REDRAW also restores the modes the program set, so that the client's terminal sends what the program expects: application cursor and keypad modes, bracketed paste, the Kitty keyboard flags in force, mouse reporting modes, focus reporting, the alternate screen, the scroll region, the cursor's shape and visibility, and the title. A host keeps the image data placements need for as long as they're on the screen or in scrollback.
 - Graphics a client's terminal can't show (a Kitty image to a terminal without Kitty graphics, say, from its TERM_HELLO) are still passed through: the program asked for them, and a host doesn't rewrite output. A program should check what the terminal supports, as it would locally.
@@ -247,7 +248,7 @@ A host keeps **sessions**. A session has **windows**, in order, one of them acti
 }
 ```
 
-`split: "right"` lays children side by side, and `split: "down"` one above the next. `size` is each child's share of its parent, and the shares of a node's children add up to `1`. The host turns shares into whole cells, with a one-cell border between panes, and each pane's terminal has the resulting size.
+`split: "right"` lays children side by side, and `split: "down"` one above the next. `size` is each child's share of its parent, and the shares of a node's children add up to `1`. The host turns shares into whole cells, with a one-cell border between panes, and each pane's terminal has the resulting size. A leaf may be a surface of another type, such as a browser tab ([§7.7](#77-panes-of-other-types)).
 
 ### 7.2 Viewers
 
@@ -282,6 +283,101 @@ A host MAY serve the sessions of a multiplexer already running on it, such as tm
 
 A bridged pane's screen comes from the host's emulator when the bytes are available, and otherwise from the multiplexer's own capture of its screen. Changes made in the multiplexer itself, by its own clients, appear in MUX_STATE as they happen.
 
+### 7.6 Programs that own panes
+
+A program running in a pane can open panes of its own in its window, lay them out, hear which pane is focused and when panes change size or close, and read and write each one. This lets an editor, a debugger or an agent's interface put its views side by side without drawing a layout itself. The program uses the **pane interface**, not a VROOM connection. It needs no credentials, because the host started it.
+
+#### 7.6.1 Finding the host
+
+A host offers the pane interface to the programs it runs in one of two ways. A program checks for them in this order:
+
+1. **Local.** The host sets `VROOM_PANES` and `VROOM_MUX_FD` in the environment of the program it starts.
+   - `VROOM_PANES` lists the program's panes and the file descriptors holding them, as `name:fd` pairs separated by commas, such as `main:0,log:3`. `main` is the pane the program runs in. A terminal pane is the slave end of its own PTY.
+   - `VROOM_MUX_FD` is a Unix datagram socket. It carries one message ([§7.6.2](#762-messages)) per datagram, and file descriptors as `SCM_RIGHTS`.
+2. **In band.** The program's terminal is a host's pane further away, for example over SSH, so neither the environment nor descriptors reach it. The program:
+   1. puts its terminal in raw mode;
+   2. writes XTGETTCAP for the name `vroom-mux` (`DCS + q 76726f6f6d2d6d7578 ST`), followed by DA1 (`CSI c`).
+
+   A host that offers the interface answers `DCS 1 + r 76726f6f6d2d6d7578=31 ST` before its DA1 reply. A terminal that doesn't offer it answers only DA1, so the program knows after one round trip and needs no timeout. To start, the program writes `DCS vroom-mux;start ST`. From the next byte on, both directions carry frames ([§7.6.3](#763-frames)) until END.
+
+Without either, the program has its one terminal, as anywhere else.
+
+The query and the start request are addressed to the host. The host answers them only on the pane they arrive on. Unlike other output ([§6](#6-the-byte-stream)), the host does not pass them to viewers or draw them.
+
+Raw mode matters because, in cooked mode, the reply would wait for a newline. Setting raw mode can discard input typed but not yet read.
+
+#### 7.6.2 Messages
+
+Messages are JSON objects, with the Session's [error codes](./VROOM-Session.md#9-error-codes):
+- A request carries `request_id`, and its reply echoes it.
+- A refusal is `{"request_id": ..., "error": {"code": ..., "message": ...}}`.
+- The program names its panes. Names are unique among its panes, and the host also gives each pane a surface ID.
+
+Program to host:
+
+| Name | Body |
+|---|---|
+| HELLO | Nothing. Answered with HELLO: `version`, `types` (the pane types offered, [§7.7](#77-panes-of-other-types)), `panes`, `layout`, `focus`. Each entry of `panes` has `surface`, `type`, `rows`, `cols`, `cell_px` and, in band, `channel`. In band, the host sends HELLO unasked, as the first frame |
+| OPEN | `name`, `type` (`terminal` unless given), `next_to?` (a pane's name; the focused pane unless given), `direction` (`right` or `down`), `size?` (the new pane's share, `0`–`1`), and the type's own fields ([§7.7](#77-panes-of-other-types)). Answered with OPENED, shaped like one entry of HELLO's `panes`. Locally, a terminal pane's descriptor comes with OPENED |
+| ARRANGE | `layout`: [§7.1](#71-the-model)'s tree, with pane names as leaves, naming each of the program's panes once. Answered with LAYOUT |
+| FOCUS | `name` |
+| CLOSE | `name` |
+| RENAME | `name`, `title` |
+| ACT | `name`, and an action of the pane's type ([§7.7](#77-panes-of-other-types)). Answered as that type answers it |
+| END | In band only: the program stops framing. The host closes the program's other panes, answers, and from then on the stream is a plain terminal |
+
+Host to program:
+
+| Name | Body |
+|---|---|
+| LAYOUT | `layout`, with each leaf's `rows` and `cols`. Sent after every change to the arrangement, whoever made it |
+| RESIZE | `name`, `rows`, `cols`, `cell_px` |
+| FOCUS | `name`, `focused` |
+| CLOSED | `name`, `by` (`user` or `end`) |
+| EVENT | `name`, and an event of the pane's type |
+
+- **Geometry is the host's.** The host places ARRANGE's layout in whole cells, and LAYOUT and RESIZE report what it gave.
+- **RESIZE is the only resize notice for every pane except `main`.** A process has one controlling terminal, so SIGWINCH comes only for `main`. Locally, the new size is also on each pane's PTY (`TIOCGWINSZ`).
+- **No lease is needed for a program's own panes.** It is the program running there, not a client, and its requests change only its own panes. People and clients with the session's lease may still rearrange, resize, focus and close those panes ([§7.3](#73-leases)). The program hears of it through LAYOUT, FOCUS and CLOSED, and SHOULD NOT undo it.
+- **Input to a program's pane is input like any other.** What a person or an agent types into one of the program's panes reaches the program on that pane, under that pane's lease ([§6](#6-the-byte-stream)).
+- **The program's panes close when it exits.** A terminal pane stays open while any process still holds its PTY.
+- **A program MAY hand a terminal pane to a child, as the child's terminal.**
+  - Locally, the child takes the pane's PTY as its controlling terminal.
+  - In band, the program gives the child a PTY of its own, and copies bytes and sizes between that PTY and the pane's channel.
+
+  Either way, the child gets SIGWINCH and ^C as in any terminal. Children don't inherit the pane interface: the program removes `VROOM_PANES` and `VROOM_MUX_FD` from their environment.
+
+Locally, a terminal pane that isn't `main` is no process's controlling terminal. In cooked mode, ^C typed there is swallowed, the line typed so far is dropped, and no process gets a signal. A program SHOULD turn off `ISIG` on such panes, or use raw mode. Then ^C arrives as a byte.
+
+#### 7.6.3 Frames
+
+```
+[length: u32, big-endian][channel: u16, big-endian][payload: length bytes]
+```
+
+- Channel `0` carries [§7.6.2](#762-messages)'s messages, one UTF-8 JSON object per frame.
+- Channel `1` is `main`. Every other terminal pane has the channel given in HELLO or OPENED.
+- A terminal pane's channel carries its output from the program and its input to the program, as [§6](#6-the-byte-stream)'s OUTPUT and INPUT do.
+
+Frames have no line discipline. Input arrives exactly as typed, with no echo and no signals. A program in band echoes and edits lines itself, or gives the pane to a child ([§7.6.2](#762-messages)). The program keeps its terminal in raw mode while framing, and restores it after END.
+
+### 7.7 Panes of other types
+
+A window's layout may hold surfaces of any VROOM type, not only terminals. A leaf's `pane` is a surface ID, and its prefix says its type.
+
+| OPEN `type` | Surface | OPEN fields | ACT and EVENT |
+|---|---|---|---|
+| `terminal` | `pty:<n>` | | Bytes ([§6](#6-the-byte-stream)); ACT is refused with `4605` |
+| `browser` | `tab:<n>` | `url?` | [VROOM-Browsable](./VROOM-Browsable.md)'s actions and navigation, by their names there; its page events as EVENT |
+| `display` | `display:<id>` or `window:<id>` | `surface` | [VROOM-Graphical](./VROOM-Graphical.md)'s actions on one of the host's own surfaces |
+| `remote` | `remote:<n>` | `host`, `surface` | A surface of another VROOM host, which this host reaches as a client and serves as its own: the other surface type's actions and events |
+
+- **Viewers draw panes by type.** A client draws a terminal pane from its byte stream, and other panes from their type's video, which Graphical and Browsable both have. A client drawing in a terminal can show video panes with Kitty graphics. A client that can't draw a type shows the pane's title in its place.
+- **Agents work each pane by its type.** For example, a tab through Browsable's page tree, and a display through Graphical's screenshots. Leases work as in [§7.3](#73-leases), with a pane's lease covering whatever surface it is.
+- **A `remote` pane uses the host's own credentials.** The host connects to the other host with credentials it was configured with, never ones from the program. MUX_STATE gives such a pane's `source` as `{"host": ..., "surface": ...}`.
+- **Keys typed into a pane that isn't a terminal go to that pane**, not to the program.
+- **A type the host doesn't offer is refused.** It is missing from HELLO's `types`, and OPEN with it fails with `4605`.
+
 ---
 
 ## 8. Leases and people
@@ -296,6 +392,8 @@ As in every type, a person outranks an agent ([Session §4](./VROOM-Session.md#4
 - ACTIVITY ([Session §8](./VROOM-Session.md#8-audit)) names the terminal and the action, never the text typed or pasted.
 - The screen shows what the program printed. Input the program doesn't echo, such as a password prompt's, never appears on the screen; anything printed does, secrets included.
 - OSC 52 clipboard writes from a program reach a person's clipboard only through their own terminal's policy. A host MUST NOT apply them to its own clipboard.
+- The pane interface ([§7.6](#76-programs-that-own-panes)) gives a program only its own panes. A host MUST offer only the pane types its configuration allows (browser tabs only where it serves Browsable, for example), refusing others with `4605`, and SHOULD refuse with `4603` a `display` or `remote` pane its policy doesn't permit for that program.
+- A `remote` pane reaches only hosts the host is configured to reach, with its own credentials. A program can't supply credentials, nor learn them.
 
 ---
 
@@ -303,7 +401,7 @@ As in every type, a person outranks an agent ([Session §4](./VROOM-Session.md#4
 
 - File transfer and port forwarding, as further channels.
 - Gateways: `vroom-to-ssh` and `ssh-to-vroom`.
-- Hybrid sessions: a terminal and a Graphical display in one view.
+- Nesting: a child opening panes of its own, through a pane interface of its own.
 
 ---
 
@@ -323,7 +421,7 @@ As in every type, a person outranks an agent ([Session §4](./VROOM-Session.md#4
 
 ## Status
 
-Draft. The agent access in §5 and the multiplexing in §7 are new in 0.3.0 and expected to change as hosts implement them.
+Draft. The agent access in §5, the multiplexing in §7 and the pane interface in §7.6 and §7.7 are new in 0.3.0 and expected to change as hosts implement them. The pane interface's local and in-band forms have been tried in a prototype on macOS and Linux.
 
 ## License
 
