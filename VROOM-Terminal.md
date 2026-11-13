@@ -4,7 +4,7 @@
 
 *Terminals for humans and agents: a PTY's bytes for people, its screen for agents.*
 
-Version: 0.3.0-draft | Status: Draft | Date: 2026-11-11 | Base: [VROOM-Session](./VROOM-Session.md)
+Version: 0.3.0-draft | Status: Draft | Date: 2026-11-13 | Base: [VROOM-Session](./VROOM-Session.md)
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used as described in RFC 2119.
 
@@ -116,7 +116,7 @@ On `vroom.terminal.control`. Requests carry `request_id`, and errors are Session
 | `0x29` | KILL | C→S | `session`, `window` or `pty`: closes it and everything in it |
 | `0x2A` | WINDOW_RESIZE | C→S | `window`, `rows`, `cols`, `xpix?`, `ypix?`: the whole window, its panes taking their shares of it |
 
-Opening, closing, resizing, signalling, input, actions and arranging ([§7.3](#73-leases)) need the terminal's lease ([Session §4](./VROOM-Session.md#4-the-control-lease)). PTY_OPEN and SESSION_NEW need none, as they make a session of their own and change no one else's, and give the opener no lease. Watching (PTY_LIST, PTY_ATTACH, SCREEN_REQ, CHANGES_REQ) needs none. A terminal whose program has exited stays listed, with its last screen, until PTY_CLOSE.
+Closing, resizing, signalling, input, actions and arranging need a lease of the kind [§7.3](#73-leases) names, on the terminal or its session ([Session §4](./VROOM-Session.md#4-the-control-lease)). PTY_OPEN and SESSION_NEW need none, as they make a session of their own and change no one else's, and give the opener no lease. Watching (PTY_LIST, PTY_ATTACH, SCREEN_REQ, CHANGES_REQ) needs none. A terminal whose program has exited stays listed, with its last screen, until PTY_CLOSE.
 
 ---
 
@@ -220,7 +220,7 @@ On `vroom.terminal.pty.<n>`:
 - On attaching, the host sends REDRAW, then OUTPUT from that point. A client that reconnects to a running terminal sees its screen at once: its text, styles and sized text, and its images, transmitted and placed again.
 - REDRAW also restores the modes the program set, so that the client's terminal sends what the program expects: application cursor and keypad modes, bracketed paste, the Kitty keyboard flags in force, mouse reporting modes, focus reporting, the alternate screen, the scroll region, the cursor's shape and visibility, and the title. A host keeps the image data placements need for as long as they're on the screen or in scrollback.
 - Graphics a client's terminal can't show (a Kitty image to a terminal without Kitty graphics, say, from its TERM_HELLO) are still passed through: the program asked for them, and a host doesn't rewrite output. A program should check what the terminal supports, as it would locally.
-- INPUT needs the terminal's lease. Without it the host drops the input and reports `4600` on the session, at most once a second.
+- INPUT needs an `input` lease on the terminal or its session. Without it the host drops the input and reports `4600` on the session, at most once a second.
 - OUTPUT that a slow client can't take is not dropped: xumux flow control holds the program back. A host MAY instead close a channel that stays full, so that one slow viewer cannot stall the program for everyone.
 
 ---
@@ -254,19 +254,36 @@ A host keeps **sessions**. A session has **windows**, in order, one of them acti
 
 Every client sees the same sessions, windows and layouts. Attaching to a session is subscribing to MUX_STATE and attaching (PTY_ATTACH) to the panes it shows. Detaching is closing those channels: the session runs on.
 
-A window has one size, set by WINDOW_RESIZE (or RESIZE, for a window of one pane), which needs the session's lease. Taking a lease doesn't resize anything: a client that wants the window to fit its own terminal asks for it. Viewers whose terminals differ draw the window in theirs as best they can, by cropping or padding.
+A window has one size, set by WINDOW_RESIZE (or RESIZE, for a window of one pane), which needs a `size` lease on the session. Taking a lease doesn't resize anything: a client that wants the window to fit its own terminal asks for it. Viewers whose terminals differ draw the window in theirs as best they can, by cropping or padding.
 
 ### 7.3 Leases
 
-A lease on a session (`tsession:<n>`) covers its windows and panes, as a lease on a display covers its windows. Arranging (SPLIT, ARRANGE, FOCUS, ZOOM, RENAME, KILL, WINDOW_NEW, WINDOW_RESIZE) needs the session's lease. Input and actions on one pane need that pane's lease, or its session's.
+A lease on a session (`tsession:<n>`) covers its windows and panes, as a lease on a display covers its windows. Each operation needs a lease of one kind ([Session §4.2](./VROOM-Session.md#42-kinds)):
 
-A pane has one holder at a time, by its own lease or its session's:
+| Kind | Operations | Lease on |
+|---|---|---|
+| `arrange` | SPLIT, ARRANGE, FOCUS, ZOOM, RENAME, KILL, WINDOW_NEW | The session |
+| `arrange` | PTY_CLOSE | The terminal, or its session |
+| `size` | WINDOW_RESIZE, RESIZE | The session |
+| `input` | INPUT ([§6](#6-the-byte-stream)), SIGNAL, ACT | The terminal, or its session |
 
-- A request for a session's lease conflicts with every lease on its panes held by others, and a request for a pane's lease conflicts with its session's lease held by another. Each conflict is settled as [Session §4](./VROOM-Session.md#4-the-control-lease) settles a held surface: a person's request takes the leases from agents, and an agent's waits (`wait_ms`) or fails with `4604`.
+A terminal's actions are typing and pointing, so ACT needs `input`, not `act`: an agent's `text` and a person's keystrokes are the same kind, and interleave or conflict as one. A lease of kind `act` covers nothing in Terminal.
+
+Leases on a session and on its panes conflict as [Session §4.3](./VROOM-Session.md#43-conflicts-rank-and-sharing) says: they cover a common pane, have a kind in common, aren't held by the same client, and one of them is exclusive.
+
+- A request for a session's lease conflicts with others' leases of the same kinds on its panes, and a request for a pane's lease with another's lease of the same kinds on its session. Each conflict is settled by rank: a person's request takes the leases from agents, and an agent's waits (`wait_ms`) or fails with `4604`.
 - Leases taken from an agent this way end at once, and LEASE_STATE says so. Its actions and input after that fail with `4600`.
 - A client holding a session's lease may also hold its panes' leases. It needs nothing more to act on them.
 
-So a person who takes a session stops every agent in it, and an agent can work one pane while a person holds a different session.
+So a person who takes a session's `input` stops every agent typing in it, and one who takes only `arrange` and `size` rearranges and resizes it while agents go on typing. A lease of every kind, the default, stops every agent in the session, as in earlier drafts. An agent can work one pane while a person holds a different session.
+
+**Example: handing a session to another multiplexer.** A client that shows a session through a local multiplexer, one local pane for each of the session's, holds `arrange` and `size` on the session, so it can lay out and size the windows to match what the multiplexer shows:
+
+```json
+{ "request_id": "r1", "surface": "tsession:1", "kinds": ["arrange", "size"], "ttl_ms": 30000, "wait_ms": 0 }
+```
+
+Each local pane runs a client attached to its terminal, holding `input` on it. Leases of different kinds don't conflict, so these work side by side. Or the handoff client takes `input` as well and grants it ([Session §4.4](./VROOM-Session.md#44-grants)), narrowed to one pane and `input` for each attach, so that every attach acts as part of one holder, with its rank.
 
 ### 7.4 Drawing (informative)
 
@@ -363,16 +380,16 @@ Host to program:
 - **MUX_STATE shows the subtree as an ordinary split.** Each of the program's panes has `owner`: the surface ID of `main`. A client can tell from it that closing the pane changes a program's layout, and a person doesn't take a program's panes for strays.
 - **Geometry is the host's.** The host places ARRANGE's layout in whole cells, and LAYOUT and RESIZE report what it gave.
 - **RESIZE is the only resize notice for every pane except `main`.** A process has one controlling terminal, so SIGWINCH comes only for `main`. Locally, the new size is also on each pane's PTY (`TIOCGWINSZ`).
-- **Arranging needs no lease.** The program needs none to open, arrange, focus, rename or close its own panes, or to write to its terminal panes, which is output. It's the program running there, not a client. People and clients with the session's lease may still rearrange, resize, focus and close those panes ([§7.3](#73-leases)). The program hears of it through LAYOUT, FOCUSED and CLOSED, and SHOULD NOT undo it.
+- **Arranging needs no lease.** The program needs none to open, arrange, focus, rename or close its own panes, or to write to its terminal panes, which is output. It's the program running there, not a client. People and clients with the session's `arrange` or `size` lease may still rearrange, resize, focus and close those panes ([§7.3](#73-leases)). The program hears of it through LAYOUT, FOCUSED and CLOSED, and SHOULD NOT undo it.
 - **The program's actions give way to people.** A program driving a pane that isn't a terminal acts as an agent does ([§8](#8-leases-and-people)).
-  - **Its own panes** (a `browser` tab it opened). Its ACT on one fails with `4600` while a person holds that pane's lease or its session's. So it works the tab freely until a person takes over.
-  - **Surfaces it didn't make** (a `display` or a `remote` pane, [§7.7](#77-panes-of-other-types)). Showing one needs no lease. For the program's ACT on one, the host takes the surface's lease for the program, as it does for an agent:
+  - **Its own panes** (a `browser` tab it opened). Its ACT on one fails with `4600` while a person holds a lease of the kind that action needs on that pane or its session. So it works the tab freely until a person takes over.
+  - **Surfaces it didn't make** (a `display` or a `remote` pane, [§7.7](#77-panes-of-other-types)). Showing one needs no lease. For the program's ACT on one, the host takes the surface's lease of the kind that action needs for the program, as it does for an agent:
     - the action goes ahead if the lease is free or already the program's;
     - it fails with `4600` if another holds the lease;
     - a person's request takes the lease from the program, as from any agent;
     - the lease ends when the pane closes.
 - **What people and clients type into a pane is theirs.** Typing into a pane that isn't a terminal goes to the pane, not to the program ([§7.7](#77-panes-of-other-types)), under the typist's own lease, as on the surface itself. A lease taken for the program never refuses a person's typing.
-- **Input to a program's pane is input like any other.** What a person or an agent types into one of the program's terminal panes reaches the program on that pane, under that pane's lease ([§6](#6-the-byte-stream)).
+- **Input to a program's pane is input like any other.** What a person or an agent types into one of the program's terminal panes reaches the program on that pane, under that pane's `input` lease ([§6](#6-the-byte-stream)).
 
 #### 7.6.4 Children
 
@@ -425,7 +442,7 @@ A window's layout may hold surfaces of any VROOM type, not only terminals. A lea
   - MUX_STATE gives the pane's `source` as `{"host": ..., "surface": ...}`.
   - The host connects with credentials it was configured with, never ones from the program.
 - **Viewers draw panes by type.** A client draws a terminal pane from its byte stream, and other panes from their type's video, which Graphical and Browsable both have. A client drawing in a terminal can show video panes with Kitty graphics. A client that can't draw a type shows the pane's title in its place.
-- **Agents work each pane by its type.** For example, a tab through Browsable's page tree, and a display through Graphical's screenshots. Leases work as in [§7.3](#73-leases), with a pane's lease covering whatever surface it is.
+- **Agents work each pane by its type.** For example, a tab through Browsable's page tree, and a display through Graphical's screenshots. Leases work as in [§7.3](#73-leases), with a pane's lease covering whatever surface it is, and each operation needing the kind its own type gives it.
 - **Keys typed into a pane that isn't a terminal go to that pane**, not to the program.
 - **A kind the host doesn't offer is refused.** It is missing from HELLO's `kinds`, and OPEN with it fails with `4605`.
 
@@ -433,7 +450,7 @@ A window's layout may hold surfaces of any VROOM type, not only terminals. A lea
 
 ## 8. Leases and people
 
-As in every type, a person outranks an agent ([Session §4](./VROOM-Session.md#4-the-control-lease)). A person typing into a terminal holds its lease, and an agent's actions there fail with `4600` until they release it. Watching is open to both: an agent may read the screen while a person types, and a person may watch an agent work.
+As in every type, a person outranks an agent ([Session §4](./VROOM-Session.md#4-the-control-lease)). A person typing into a terminal holds its `input` lease, and an agent's actions there fail with `4600` until they release it, unless both hold it shared ([Session §4.3](./VROOM-Session.md#43-conflicts-rank-and-sharing)). Watching is open to both: an agent may read the screen while a person types, and a person may watch an agent work.
 
 ---
 

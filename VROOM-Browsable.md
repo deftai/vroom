@@ -4,7 +4,7 @@
 
 *Browsers as browsers: tabs, pages, network and video, for humans and agents.*
 
-Version: 0.1.0-draft | Status: Draft | Date: 2026-11-08 | Base: [VROOM-Session](./VROOM-Session.md)
+Version: 0.1.0-draft | Status: Draft | Date: 2026-11-13 | Base: [VROOM-Session](./VROOM-Session.md)
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used as described in RFC 2119.
 
@@ -103,6 +103,8 @@ Structured, on `vroom.browsable.control`. Every action takes a `request_id`, and
 | `0xC5` | STREAM_START | C→S | As [Graphical](./VROOM-Graphical.md#31-starting-a-stream), with `tab` for `surface` |
 | `0xC6` | STREAM_STOP | C→S | `tab` |
 | `0xC7` | STREAM_STATE | S→C | As Graphical, with `tab` |
+
+Actions on a tab (ACT, NAVIGATE, HISTORY, DIALOG_ANSWER, FILE_SET, EVALUATE) need an `act` [lease](./VROOM-Session.md#4-the-control-lease) on the tab, and TAB_CLOSE an `arrange` lease. Input on a tab's video stream, as in [Graphical](./VROOM-Graphical.md#4-input), needs an `input` lease. Watching needs none.
 
 On `vroom.browsable.events`: `0xD0` NETWORK_EVENT (`tab`, `id`, `phase`, `method`, `url`, `status?`, `bytes?`) and `0xD1` CONSOLE_EVENT (`tab`, `level`, `text`, `url?`, `line?`). Bodies are metadata only. Hosts MUST NOT include request or response bodies or credential headers.
 
