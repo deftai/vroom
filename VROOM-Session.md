@@ -127,10 +127,11 @@ A lease is held by one client, its **owner**, and other clients may join it ([§
 | `wait_ms` | How long to wait for conflicting leases to end before failing with `4604`. `0` fails at once with `4600` |
 | `lease_id` | Renews that lease, with a new `ttl_ms` if given, instead of asking for another. No other field is then given |
 
-The host answers with LEASE (`0x14`): `request_id`, `lease_id`, `surfaces`, `kinds`, `mode` and `ttl_ms`, or with an ERROR.
+The host answers with LEASE (`0x14`): `request_id`, `lease_id`, `surfaces`, `kinds`, `mode` and `ttl_ms`, or with an ERROR. A client of an earlier draft is answered as before ([§4.5](#45-state-and-compatibility)).
 
 - **All or nothing.** A lease's surfaces are granted together, renewed together and released together. While a request waits, a host MUST NOT hold some of its surfaces for it: so two clients asking for the same surfaces in different orders can't each hold half and wait for the other.
 - A request for exactly the surfaces, kinds and mode of a lease the client owns renews that lease.
+- A joiner ([§4.4](#44-grants)) may renew the lease it joined by `lease_id`, but not change its `ttl_ms`, which is the owner's: a joiner's renewal with `ttl_ms` is refused with `4603`.
 - `ttl_ms` is renewed by each action under the lease, by any of its holders, and by renewing it, so a stalled agent loses control by itself.
 - LEASE_RELEASE names `lease_id`, or `surface`. Naming a surface ends every lease the client owns that covers it, and takes the client out of every lease it joined that covers it, so it means the same on every host. The owner's release ends a lease. A joiner's release takes only that joiner out of it.
 - A host MUST refuse an action without a lease of the kind it needs on its surface with `4600` (LEASE_REQUIRED), with `detail.surface` and `detail.kind` naming what was missing.
@@ -180,13 +181,16 @@ The owner of a lease can let other clients join it, as when a program starts oth
 | `0x15` | LEASE_GRANT | C→S | `request_id`, `lease_id`, `surfaces?`, `kinds?`, `joins?`, `expires_ms?` |
 | `0x16` | GRANT | S→C | `request_id`, `grant_id`, `secret` |
 | `0x17` | LEASE_JOIN | C→S | `request_id`, `secret`. Answered with LEASE, for what the grant allows |
-| `0x18` | GRANT_REVOKE | C→S | `grant_id` |
+| `0x18` | GRANT_REVOKE | C→S | `request_id`, `grant_id`. Answered with LEASE_STATE ([§4.5](#45-state-and-compatibility)), with `request_id` |
 
-- **Narrowing.** `surfaces` and `kinds` limit joiners to some of the lease's surfaces and kinds. A grant never widens a lease: one that names a surface or kind the lease lacks is refused with `4603`.
+- **Narrowing.** `surfaces` and `kinds` limit joiners to some of what the lease covers: its surfaces, or surfaces they cover ([§4.1](#41-asking-renewing-and-releasing)), such as one pane of a session, and some of its kinds. A grant never widens a lease: one that names a surface the lease doesn't cover, or a kind it lacks, is refused with `4603`.
 - **Limits.** `joins` is how many clients may join by the grant, `1` by default, and `expires_ms` how long it can be used to join. Hosts SHOULD bound both.
 - **Rank.** A joiner acts with the lease's rank, whatever its own `client.kind`, within the grant's surfaces and kinds. Its actions renew the lease.
-- **Only the owner grants.** A joiner's LEASE_GRANT is refused with `4603`.
-- **Refusals.** LEASE_JOIN with a secret that is unknown, used up, expired or revoked is refused with `4603`, the same for each, so a secret can't be probed.
+- **Only the owner grants and revokes.** LEASE_GRANT or GRANT_REVOKE from anyone else, or naming a `lease_id` or `grant_id` the host doesn't know, is refused with `4603`.
+- **Refusals.** LEASE_JOIN is refused with `4603`, the same for each, so a secret can't be probed, when:
+  - its secret is unknown, used up, expired or revoked;
+  - the client is the lease's owner;
+  - the client has joined the lease already.
 - **Revoking.** GRANT_REVOKE stops new joins, and every client that joined by the grant leaves the lease.
 - **Ending.** The lease ends when its owner releases it, when it lapses, when it is taken from its owner, or when the owner's connection closes. Its joiners lose it then too. A joiner's connection closing takes only that joiner out of the lease.
 
@@ -204,14 +208,21 @@ LEASE_STATE lists every lease, on every change:
 {
   "leases": [{
     "lease_id": "l7", "surfaces": ["tsession:1"], "kinds": ["arrange", "size"], "mode": "exclusive",
-    "rank": "human", "owner": "c3", "joiners": ["c4", "c5"], "suspended": false
+    "rank": "human", "owner": "c3", "joiners": ["c4", "c5"], "suspended": false,
+    "surface": "tsession:1", "client": "c3", "kind": "human"
   }]
 }
 ```
 
 Clients are named by the `client_id` each one gets in SESSION_WELCOME. LEASE_STATE never carries a grant's secret.
 
+- **Every change** includes a lease becoming suspended ([§4.1](#41-asking-renewing-and-releasing)) and ceasing to be, so people and viewers see when local input has stopped an agent.
+- **Kept for compatibility.** Each entry also carries the fields earlier drafts' clients read: `surface`, the first of `surfaces`; `client`, the owner; and `kind`, the rank. So a client of an earlier draft reads a one-surface lease as before. `kind` is the rank, not one of `kinds`, and newer clients read `surfaces`, `owner` and `rank` instead.
+
 SESSION_WELCOME's `leases` lists what the host supports of `surfaces` (more than one per lease), `kinds`, `shared` and `grants`. A request using something the host doesn't list is refused with `4605`. A client that uses none of them gets exactly the rules of earlier drafts: one surface per lease, every kind, and one holder at a time.
+
+- **Telling them apart.** A host answers LEASE_REQUEST with LEASE_STATE, with `request_id`, as before, when the client's SESSION_HELLO `version` is earlier than 0.2, or absent, and the request uses none of `surfaces`, `kinds`, `mode` or `lease_id`. Every other request is answered with LEASE.
+- **Not which operations need a lease.** Each type says which kind each operation needs, and on which surfaces, and that is the same for every client, whichever draft it speaks. A client of an earlier draft meets it with leases of every kind.
 
 ---
 

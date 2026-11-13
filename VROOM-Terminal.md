@@ -254,7 +254,7 @@ A host keeps **sessions**. A session has **windows**, in order, one of them acti
 
 Every client sees the same sessions, windows and layouts. Attaching to a session is subscribing to MUX_STATE and attaching (PTY_ATTACH) to the panes it shows. Detaching is closing those channels: the session runs on.
 
-A window has one size, set by WINDOW_RESIZE (or RESIZE, for a window of one pane), which needs a `size` lease on the session. Taking a lease doesn't resize anything: a client that wants the window to fit its own terminal asks for it. Viewers whose terminals differ draw the window in theirs as best they can, by cropping or padding.
+A window has one size, set by WINDOW_RESIZE, which needs a `size` lease on the session, or by RESIZE, for a window of one pane, which needs one on the terminal or its session ([§7.3](#73-leases)). Taking a lease doesn't resize anything: a client that wants the window to fit its own terminal asks for it. Viewers whose terminals differ draw the window in theirs as best they can, by cropping or padding.
 
 ### 7.3 Leases
 
@@ -264,7 +264,8 @@ A lease on a session (`tsession:<n>`) covers its windows and panes, as a lease o
 |---|---|---|
 | `arrange` | SPLIT, ARRANGE, FOCUS, ZOOM, RENAME, KILL, WINDOW_NEW | The session |
 | `arrange` | PTY_CLOSE | The terminal, or its session |
-| `size` | WINDOW_RESIZE, RESIZE | The session |
+| `size` | WINDOW_RESIZE | The session |
+| `size` | RESIZE | The terminal, or its session |
 | `input` | INPUT ([§6](#6-the-byte-stream)), SIGNAL, ACT | The terminal, or its session |
 
 A terminal's actions are typing and pointing, so ACT needs `input`, not `act`: an agent's `text` and a person's keystrokes are the same kind, and interleave or conflict as one. A lease of kind `act` covers nothing in Terminal.
