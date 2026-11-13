@@ -132,7 +132,7 @@ The host answers with LEASE (`0x14`): `request_id`, `lease_id`, `surfaces`, `kin
 - **All or nothing.** A lease's surfaces are granted together, renewed together and released together. While a request waits, a host MUST NOT hold some of its surfaces for it: so two clients asking for the same surfaces in different orders can't each hold half and wait for the other.
 - A request for exactly the surfaces, kinds and mode of a lease the client owns renews that lease.
 - `ttl_ms` is renewed by each action under the lease, by any of its holders, and by renewing it, so a stalled agent loses control by itself.
-- LEASE_RELEASE names `lease_id`, or `surface` for the lease that covers it. The owner's release ends the lease. A joiner's release takes only that joiner out of it.
+- LEASE_RELEASE names `lease_id`, or `surface`. Naming a surface ends every lease the client owns that covers it, and takes the client out of every lease it joined that covers it, so it means the same on every host. The owner's release ends a lease. A joiner's release takes only that joiner out of it.
 - A host MUST refuse an action without a lease of the kind it needs on its surface with `4600` (LEASE_REQUIRED), with `detail.surface` and `detail.kind` naming what was missing.
 - A lease on a display covers the windows shown on it. A lease on a tab does not cover its display. Each type says what its surfaces cover.
 - Physical input at the host SHOULD suspend leases of agent rank on the affected display until the input has been idle for a configurable time. A suspended lease refuses actions with `4600` and `detail.reason: "local_input"`.
@@ -156,7 +156,7 @@ Two leases conflict when all of these hold:
 
 - they cover a common surface, directly or through one that covers it (a display and one of its windows);
 - they have a kind in common;
-- no client holds both, as owner or joiner;
+- they have different owners;
 - at least one of them is exclusive.
 
 A request that would conflict with held leases is settled by rank. A lease's rank is its owner's `client.kind`, `human` or `agent` ([§2.1](#21-session_hello-and-session_welcome)), and joiners act with it ([§4.4](#44-grants)).
@@ -173,7 +173,7 @@ A request that would conflict with held leases is settled by rank. A lease's ran
 
 ### 4.4 Grants
 
-The owner of a lease can let other clients join it, as when a program starts others that act on its behalf. Joiners count as one holder with the owner, so they never conflict with each other or with it.
+The owner of a lease can let other clients join it, as when a program starts others that act on its behalf. Joiners act under the owner's lease rather than holding leases of their own, so they never conflict with each other or with it. A lease a joiner asks for itself is its own, owned by it and ranked by its own `client.kind`, and conflicts with the lease it joined like any other.
 
 | Type | Name | Dir | Body |
 |---|---|---|---|

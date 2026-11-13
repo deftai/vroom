@@ -104,7 +104,7 @@ Structured, on `vroom.browsable.control`. Every action takes a `request_id`, and
 | `0xC6` | STREAM_STOP | C→S | `tab` |
 | `0xC7` | STREAM_STATE | S→C | As Graphical, with `tab` |
 
-Actions on a tab (ACT, NAVIGATE, HISTORY, DIALOG_ANSWER, FILE_SET, EVALUATE) need an `act` [lease](./VROOM-Session.md#4-the-control-lease) on the tab, and TAB_CLOSE an `arrange` lease. Input on a tab's video stream, as in [Graphical](./VROOM-Graphical.md#4-input), needs an `input` lease. Watching needs none.
+Actions on a tab (ACT, NAVIGATE, HISTORY, DIALOG_ANSWER, FILE_SET, EVALUATE) need an `act` [lease](./VROOM-Session.md#4-the-control-lease) on the tab, and TAB_CLOSE an `arrange` lease. STORAGE_SET changes every tab in its context, so it needs an `act` lease on each tab open in that context, and none when no tab is. TAB_OPEN needs none, as it makes a tab of its own, and gives the opener no lease. Input on a tab's video stream, as in [Graphical](./VROOM-Graphical.md#4-input), needs an `input` lease. Watching needs none.
 
 On `vroom.browsable.events`: `0xD0` NETWORK_EVENT (`tab`, `id`, `phase`, `method`, `url`, `status?`, `bytes?`) and `0xD1` CONSOLE_EVENT (`tab`, `level`, `text`, `url?`, `line?`). Bodies are metadata only. Hosts MUST NOT include request or response bodies or credential headers.
 
