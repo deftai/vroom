@@ -161,7 +161,7 @@ Agents SHOULD prefer FIND → ACT with `id` over raw coordinates. Coordinates ar
 |---------|-------------|---------|
 | `vroom.structural.control` | **Reliable, ordered** | All Structural messages (STRUCT_HANDSHAKE, SNAPSHOT, FIND, ACT, …) |
 
-Profile: `vroom-structural/1`. Surfaces are `app:<id>` and `window:<n>`. Leases, guards and settling are [Session's](./VROOM-Session.md).
+Profile: `vroom-structural/1`. Surfaces are `app:<id>` and `window:<n>`. Leases, guards and settling are [Session's](./VROOM-Session.md). ACT needs an `act` lease on the surface.
 
 ```mermaid
 sequenceDiagram

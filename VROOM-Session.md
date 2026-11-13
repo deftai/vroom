@@ -2,7 +2,7 @@
 
 **Virtual Remoting Over Open Methods: the shared base**
 
-Version: 0.1.0-draft | Status: Draft | Date: 2026-11-08
+Version: 0.2.0-draft | Status: Draft | Date: 2026-11-13
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used as described in RFC 2119.
 
@@ -38,10 +38,15 @@ Structured messages use CBOR by default and JSON where negotiated. SESSION_HELLO
 | `0x01` | SESSION_HELLO | C→S | Version, encodings, client identity |
 | `0x02` | SESSION_WELCOME | S→C | Selected encoding, offered types, surfaces |
 | `0x03` | SURFACES | S→C | The surfaces changed |
-| `0x10` | LEASE_REQUEST | C→S | Ask to act on a surface |
+| `0x10` | LEASE_REQUEST | C→S | Ask to act on surfaces, or renew a lease |
 | `0x11` | LEASE_RELEASE | C→S | Give a lease up |
 | `0x12` | LEASE_STATE | S→C | Who holds what, sent on every change |
 | `0x13` | LEASE_REVOKE_ALL | C→S | Kill switch |
+| `0x14` | LEASE | S→C | A lease granted, joined or renewed, in answer |
+| `0x15` | LEASE_GRANT | C→S | Let other clients join a lease ([§4.4](#44-grants)) |
+| `0x16` | GRANT | S→C | The grant's ID and secret, in answer |
+| `0x17` | LEASE_JOIN | C→S | Join a lease with a grant's secret |
+| `0x18` | GRANT_REVOKE | C→S | Stop a grant, and take its joiners out |
 | `0x20` | WAIT | C→S | Wait until a surface settles |
 | `0x21` | WAIT_RESULT | S→C | Result of WAIT |
 | `0x30` | ACTIVITY | S→C | Audit record of an action taken |
@@ -53,7 +58,7 @@ Structured messages use CBOR by default and JSON where negotiated. SESSION_HELLO
 
 ```json
 {
-  "version": "0.1.0",
+  "version": "0.2.0",
   "encodings": ["cbor", "json"],
   "client": { "name": "vroom-cli", "version": "0.1.0", "kind": "agent" }
 }
@@ -63,9 +68,11 @@ Structured messages use CBOR by default and JSON where negotiated. SESSION_HELLO
 
 ```json
 {
-  "version": "0.1.0",
+  "version": "0.2.0",
   "encoding": "cbor",
   "session": "s_19f2",
+  "client_id": "c3",
+  "leases": ["surfaces", "kinds", "shared", "grants"],
   "types": {
     "graphical": { "profile": "vroom-graphical/1", "capabilities": ["video", "cursor", "input", "clipboard"] },
     "browsable": { "profile": "vroom-browsable/1", "capabilities": ["tree", "act", "video", "input"] }
@@ -73,6 +80,8 @@ Structured messages use CBOR by default and JSON where negotiated. SESSION_HELLO
   "surfaces": []
 }
 ```
+
+`client_id` is the host's name for this connection, as LEASE_STATE and ACTIVITY use it. `leases` is what the host supports of [§4](#4-the-control-lease)'s lease features.
 
 The host lists only the types it offers. A daemon MAY offer one type. A deployment MAY run one process per type, and clients MUST NOT assume that the types share a process.
 
@@ -101,19 +110,108 @@ Every image a host returns reports how it maps to its surface: `origin` in logic
 
 A client needs a lease to act on a surface. Watching needs none. This replaces the View and Interact modes of earlier drafts: viewing is having no lease, and interacting is holding one.
 
+A lease is held by one client, its **owner**, and other clients may join it ([§4.4](#44-grants)). It covers one or more surfaces, for one or more kinds of action ([§4.2](#42-kinds)), alone or shared with others ([§4.3](#43-conflicts-rank-and-sharing)).
+
+### 4.1 Asking, renewing and releasing
+
 ```json
-{ "request_id": "r1", "surface": "display:1", "ttl_ms": 30000, "wait_ms": 30000 }
+{ "request_id": "r1", "surfaces": ["display:1", "tab:2"], "kinds": ["input", "act"], "mode": "exclusive", "ttl_ms": 30000, "wait_ms": 30000 }
 ```
 
-`wait_ms` is how long to wait for a held lease before failing with `4604`. `0` fails at once with `4600`.
+| Field | Description |
+|---|---|
+| `surfaces` | The surfaces the lease covers. `surface`, one ID, is shorthand for a list of one |
+| `kinds` | What the lease is for ([§4.2](#42-kinds)). Absent means every kind |
+| `mode` | `exclusive`, the default, or `shared` ([§4.3](#43-conflicts-rank-and-sharing)) |
+| `ttl_ms` | How long the lease lasts unused |
+| `wait_ms` | How long to wait for conflicting leases to end before failing with `4604`. `0` fails at once with `4600` |
+| `lease_id` | Renews that lease, with a new `ttl_ms` if given, instead of asking for another. No other field is then given |
 
-- A host MUST refuse an action without a matching lease with `4600` (LEASE_REQUIRED).
-- A lease on a display covers the windows shown on it. A lease on a tab does not cover its display.
-- One client holds a surface's lease at a time. By default a human's request takes a lease from an agent, and an agent's request waits for a human to release it.
-- Physical input at the host SHOULD suspend an agent's lease on the affected display until the input has been idle for a configurable time. A suspended lease refuses actions with `4600` and `detail.reason: "local_input"`.
-- `ttl_ms` is renewed by each action or by another LEASE_REQUEST, so a stalled agent loses control by itself.
-- LEASE_REVOKE_ALL ends every lease immediately. Hosts SHOULD also provide a local kill switch that needs no connection.
-- Hosts acting on a real desktop SHOULD show a visible indicator while an agent holds a lease.
+The host answers with LEASE (`0x14`): `request_id`, `lease_id`, `surfaces`, `kinds`, `mode` and `ttl_ms`, or with an ERROR.
+
+- **All or nothing.** A lease's surfaces are granted together, renewed together and released together. While a request waits, a host MUST NOT hold some of its surfaces for it: so two clients asking for the same surfaces in different orders can't each hold half and wait for the other.
+- A request for exactly the surfaces, kinds and mode of a lease the client owns renews that lease.
+- `ttl_ms` is renewed by each action under the lease, by any of its holders, and by renewing it, so a stalled agent loses control by itself.
+- LEASE_RELEASE names `lease_id`, or `surface`. Naming a surface ends every lease the client owns that covers it, and takes the client out of every lease it joined that covers it, so it means the same on every host. The owner's release ends a lease. A joiner's release takes only that joiner out of it.
+- A host MUST refuse an action without a lease of the kind it needs on its surface with `4600` (LEASE_REQUIRED), with `detail.surface` and `detail.kind` naming what was missing.
+- A lease on a display covers the windows shown on it. A lease on a tab does not cover its display. Each type says what its surfaces cover.
+- Physical input at the host SHOULD suspend leases of agent rank on the affected display until the input has been idle for a configurable time. A suspended lease refuses actions with `4600` and `detail.reason: "local_input"`.
+- LEASE_REVOKE_ALL ends every lease and every grant immediately. Hosts SHOULD also provide a local kill switch that needs no connection.
+- Hosts acting on a real desktop SHOULD show a visible indicator while an agent holds or has joined a lease.
+
+### 4.2 Kinds
+
+| Kind | For |
+|---|---|
+| `input` | Input as a person gives it, and actions that stand in for it: keys, text, the pointer, touch, a terminal's byte stream |
+| `act` | Actions through the surface's own model rather than as input: tree actions, navigation, dialogs, files, the clipboard |
+| `arrange` | What a surface holds and how: opening, closing, moving and focusing what's in it, its layout, and names |
+| `size` | The surface's size |
+
+Each type says which kind each of its operations needs. A kind a type has no operations for covers nothing there. Leases of different kinds never conflict, so one client can type into a terminal while another rearranges the session it is in.
+
+### 4.3 Conflicts, rank and sharing
+
+Two leases conflict when all of these hold:
+
+- they cover a common surface, directly or through one that covers it (a display and one of its windows);
+- they have a kind in common;
+- they have different owners;
+- at least one of them is exclusive.
+
+A request that would conflict with held leases is settled by rank. A lease's rank is its owner's `client.kind`, `human` or `agent` ([§2.1](#21-session_hello-and-session_welcome)), and joiners act with it ([§4.4](#44-grants)).
+
+- A person's request takes from agents. The conflicting leases of agent rank end at once, whole, and LEASE_STATE says so. Their holders' actions after that fail with `4600`.
+- Every other request waits until the conflicting leases end, up to `wait_ms`.
+- So a person's request takes a lease from an agent, and an agent's request waits for a person to release it, as in earlier drafts, but only where both want the same kind.
+
+**Sharing.** Shared leases with a kind in common coexist on the same surfaces, whatever their ranks: two people pairing at one terminal, or a person and an agent working one page. An exclusive request conflicts with them, and a shared request with an exclusive lease, settled by rank as above.
+
+- Shared input reaches the surface in the order the host receives it.
+- A host MUST keep each holder's held keys and buttons apart, and release only that holder's when it leaves or loses the lease.
+- A host MAY refuse `shared` for a kind with `4605`.
+
+### 4.4 Grants
+
+The owner of a lease can let other clients join it, as when a program starts others that act on its behalf. Joiners act under the owner's lease rather than holding leases of their own, so they never conflict with each other or with it. A lease a joiner asks for itself is its own, owned by it and ranked by its own `client.kind`, and conflicts with the lease it joined like any other.
+
+| Type | Name | Dir | Body |
+|---|---|---|---|
+| `0x15` | LEASE_GRANT | C→S | `request_id`, `lease_id`, `surfaces?`, `kinds?`, `joins?`, `expires_ms?` |
+| `0x16` | GRANT | S→C | `request_id`, `grant_id`, `secret` |
+| `0x17` | LEASE_JOIN | C→S | `request_id`, `secret`. Answered with LEASE, for what the grant allows |
+| `0x18` | GRANT_REVOKE | C→S | `grant_id` |
+
+- **Narrowing.** `surfaces` and `kinds` limit joiners to some of the lease's surfaces and kinds. A grant never widens a lease: one that names a surface or kind the lease lacks is refused with `4603`.
+- **Limits.** `joins` is how many clients may join by the grant, `1` by default, and `expires_ms` how long it can be used to join. Hosts SHOULD bound both.
+- **Rank.** A joiner acts with the lease's rank, whatever its own `client.kind`, within the grant's surfaces and kinds. Its actions renew the lease.
+- **Only the owner grants.** A joiner's LEASE_GRANT is refused with `4603`.
+- **Refusals.** LEASE_JOIN with a secret that is unknown, used up, expired or revoked is refused with `4603`, the same for each, so a secret can't be probed.
+- **Revoking.** GRANT_REVOKE stops new joins, and every client that joined by the grant leaves the lease.
+- **Ending.** The lease ends when its owner releases it, when it lapses, when it is taken from its owner, or when the owner's connection closes. Its joiners lose it then too. A joiner's connection closing takes only that joiner out of the lease.
+
+A grant's secret is a bearer capability: whoever presents it joins, with the owner's rank.
+
+- A host MUST make it unguessable (at least 128 random bits from a cryptographic source), and MUST NOT show it in LEASE_STATE or ACTIVITY.
+- A client MUST pass it only over channels as private as its own credentials: never on a command line, in an environment other users can read, or in logs.
+- A person's grant lets the joiner act as that person, so a client SHOULD grant only to programs it started or otherwise acts for.
+
+### 4.5 State and compatibility
+
+LEASE_STATE lists every lease, on every change:
+
+```json
+{
+  "leases": [{
+    "lease_id": "l7", "surfaces": ["tsession:1"], "kinds": ["arrange", "size"], "mode": "exclusive",
+    "rank": "human", "owner": "c3", "joiners": ["c4", "c5"], "suspended": false
+  }]
+}
+```
+
+Clients are named by the `client_id` each one gets in SESSION_WELCOME. LEASE_STATE never carries a grant's secret.
+
+SESSION_WELCOME's `leases` lists what the host supports of `surfaces` (more than one per lease), `kinds`, `shared` and `grants`. A request using something the host doesn't list is refused with `4605`. A client that uses none of them gets exactly the rules of earlier drafts: one surface per lease, every kind, and one holder at a time.
 
 ---
 
@@ -192,7 +290,7 @@ Every action in every type returns this shape, so that an agent always learns wh
 
 ## 8. Audit
 
-A host MUST emit ACTIVITY for every action it performs: time, client, surface, action, target, and result. It SHOULD also keep a local log. Text typed into a field the host knows is secret MUST be redacted.
+A host MUST emit ACTIVITY for every action it performs: time, client, surface, action, target, result, and the lease it was taken under. For a client that joined the lease, ACTIVITY names both that client and the lease's owner. It SHOULD also keep a local log. Text typed into a field the host knows is secret MUST be redacted.
 
 ---
 
@@ -202,7 +300,7 @@ From the xumux application range. They are used in ERROR, in `error.code`, and i
 
 | Code | Name | Meaning |
 |---|---|---|
-| 4600 | LEASE_REQUIRED | No current lease on this surface |
+| 4600 | LEASE_REQUIRED | No current lease of the needed kind on this surface. `detail.surface` and `detail.kind` name what was missing |
 | 4601 | STALE | A guard refused the action |
 | 4602 | TARGET_NOT_FOUND | No such surface, node or tab |
 | 4603 | NOT_PERMITTED | Host policy refuses this |

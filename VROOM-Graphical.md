@@ -4,7 +4,7 @@
 
 *The pixels of a whole desktop, fast enough to work in, for humans and agents.*
 
-Version: 0.2.0-draft | Status: Draft | Date: 2026-11-09 | Base: [VROOM-Session](./VROOM-Session.md)
+Version: 0.2.0-draft | Status: Draft | Date: 2026-11-13 | Base: [VROOM-Session](./VROOM-Session.md)
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used as described in RFC 2119.
 
@@ -143,7 +143,7 @@ xumux's WebRTC binding allows media tracks next to its DataChannels. Over that b
 
 ## 4. Input
 
-Requires a [lease](./VROOM-Session.md#4-the-control-lease). A host MUST ignore input from a client without one and SHOULD send ERROR `4600` at most once a second.
+Requires an `input` [lease](./VROOM-Session.md#4-the-control-lease) on the surface. A host MUST ignore input from a client without one and SHOULD send ERROR `4600` at most once a second.
 
 ### 4.1 Pointer channel
 
@@ -172,7 +172,7 @@ Requires a [lease](./VROOM-Session.md#4-the-control-lease). A host MUST ignore i
 - **Keys are physical.** `usage` is a USB HID usage: `(page << 16) | usage`. KEY_DOWN means a key at a position, independent of layout. The host injects it through the OS and applies the host's layout.
 - **Text is not keys.** TEXT inserts characters regardless of layout and carries IME output and pasted text. Agents typing words SHOULD use TEXT.
 - `mods`: bit 0 Shift, 1 Control, 2 Alt/Option, 3 Meta/Command/Windows, 4 CapsLock.
-- A host MUST release held keys and buttons when a lease ends, when the channel closes, and on RELEASE_ALL, so that a lost connection cannot leave a key held down.
+- A host MUST release held keys and buttons when a lease ends or its holder leaves it, when the channel closes, and on RELEASE_ALL, so that a lost connection cannot leave a key held down. With a shared lease, it releases only that holder's ([Session §4.3](./VROOM-Session.md#43-conflicts-rank-and-sharing)).
 
 ### 4.3 Cursor channel
 
@@ -210,9 +210,10 @@ On `vroom.graphical.agent`. The agent needs no video or decoder, and each answer
 - **`tile`** is the patch grid in frame pixels, while patch positions are in logical units, related by `scale`. Smaller tiles send less unchanged area, and larger ones fewer, better-compressed images. A host spots changes on some grid of its own, and SHOULD round a requested size up to a multiple of it, since coarser tiles can be made exactly from finer ones and finer ones can't be known. Hosts SHOULD allow tiles up to 512 pixels. It says the size it used.
 - **`changed_since`** lists the regions changed since the given `rev`, so an agent can request crops and not spend tokens on whole screens.
 - **Actions:** `click`, `double_click`, `right_click`, `move`, `drag` (`to`), `scroll` (`dx`, `dy`), `key` (a chord such as `"Meta+S"`), `text`, `clipboard`, and `open`. In the `text` action, `\n`, `\r\n` and `\r` each press Return once and `\t` presses Tab, so multi-line text arrives as it would be typed; a literal tab character can't be typed this way. The input channel's TEXT (`0x15`) is unchanged and sends characters as they are.
-- **`clipboard`** puts `args.text` on the host's clipboard. Unlike §4.4's offers, which travel on the control channel, it is ordered with the actions around it and has a result, so an agent that sets the clipboard and then pastes gets what it set. It needs control.
-- **`open`** opens an application (`args.app`, a name or platform identifier), a URL (`args.url`) or a file (`args.path`) on the host, as its user would, which usually brings it to the front. It takes no `at`. It needs control like any action, and hosts SHOULD let their owner restrict or disable it ([Security](#8-security)): unlike input, it can start software the screen doesn't show.
+- **`clipboard`** puts `args.text` on the host's clipboard. Unlike §4.4's offers, which travel on the control channel, it is ordered with the actions around it and has a result, so an agent that sets the clipboard and then pastes gets what it set. It needs an `act` lease.
+- **`open`** opens an application (`args.app`, a name or platform identifier), a URL (`args.url`) or a file (`args.path`) on the host, as its user would, which usually brings it to the front. It takes no `at`. It needs an `act` lease, and hosts SHOULD let their owner restrict or disable it ([Security](#8-security)): unlike input, it can start software the screen doesn't show.
 - **READ_TEXT** reads the text on a surface, or on `region` of it, from the latest frame, and answers the revision it read. Lines come in reading order, with boxes in logical units, and `confidence` from 0 to 1 where the recognizer gives one. Boxes are per line, so an agent can find a line and click within it without an image or a model call; a word's position inside a line is an estimate. `level` is a hint, and a host MAY use one level for both. It is OCR, not the accessibility tree: it sees what is drawn, including in canvases and remote sessions, and knows nothing of roles. For roles and names, use [VROOM-Structural](./VROOM-Structural.md). A `region` outside the surface is answered with `4602`, and a host that can't read text answers `4605`.
+- **Leases.** The pointer, `key` and `text` actions need an `input` lease on the surface, as input does. `clipboard` and `open` need an `act` lease: they aren't input a person could give at that spot.
 - **`at`** is `{x, y}` in logical units, required by the coordinate actions. Agents working from an image convert it using `origin` and `scale`. `clipboard` and `open` take no `at`, so their guards default to `surface` scope, and a host refuses a `region` guard on them with `4605`.
 - **Formats:** `png` and `webp` without `quality` are lossless, and hosts MUST keep them lossless. Lossless describes the encoding: with `max_edge`, the scaled image is kept exactly, not the screen's own pixels. Lossy formats cost text: in one test JPEG at quality 80 lost up to 18% of words to OCR, and lossy WebP up to 11%. Lossless WebP is much smaller on text: in one test on rendered 1440x900 screens it was 4-14 times smaller than PNG at fast settings, for 20-45 ms of encoding, but it was slow on photographic content (0.2-0.6 s) for little gain. A host SHOULD cap the effort it spends, and MAY take `budget_ms` as the most a client will wait for a smaller file. 0 asks for the fastest encoding. Model APIs charge for images by their dimensions, not their size in bytes, so `max_edge`, `region` and `if_newer_than` usually save more than the format.
 - Hosts SHOULD keep the latest frame for each surface in use, without copying it until asked.
