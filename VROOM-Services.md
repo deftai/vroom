@@ -137,6 +137,8 @@ If direct forwarding and the requested destination are permitted, TCP_READY rese
 { "request_id": "1", "connection_id": "c1", "channel": "vroom.tcp.c1", "expires_ms": 10000 }
 ```
 
+`expires_ms` is an upper bound on the remaining lifetime when the host creates the response, measured on the host's monotonic clock. The timer starts with allocation, never after response delivery; queueing and network delay consume it. Clients MUST NOT assume a fresh full interval on receipt. This rule also applies to TCP_LISTENED.
+
 This is a reservation, not a claim that TCP is connected. Unconsumed reservations count toward both `max_pending_connects` and `max_connections`; channel setup retains those reservations' capacity until it succeeds or is cleaned up. It expires after the returned interval, which MUST NOT exceed `reservation_timeout_ms`; expiry releases its capacity. The client opens the named pipe before expiry:
 
 ```json
@@ -214,7 +216,7 @@ An EOF takes effect after all earlier DATA has been written. For TCP it shuts do
 
 Opening a forbidden or unsupported service channel uses CHANNEL_REJECT `4010`; shared resource exhaustion uses `4011`; an unreachable endpoint uses `4500`. These are xumux/pipe channel-opening codes. Once the TCP control channel is open, structured ERROR uses Session codes `4603` (policy or unknown resource), `4604` (timeout) and `4605` (unsupported or invalid operation). It MAY use `detail.reason: "limit"` with `4603` for a resource limit. File-operation errors remain SFTP status responses. A malformed pipe message uses the pipe profile's protocol-error behavior. Endpoint failure after acknowledgment uses pipe RESET; it is not a fabricated TCP control success.
 
-Hosts MUST bound counts, packet lengths, partial-packet buffering, pending handshakes, queued writes and cleanup times. Capacity remains charged from reservation through completed cleanup, including pending and closing endpoints; cancelling a request does not release capacity while its backend still owns resources. A single SFTP stream or listener MUST NOT block unrelated session channels while waiting for a socket, process or peer. Backpressure must propagate to the original endpoint; a gateway MUST NOT regain credit early by adding an unbounded queue. Session/input traffic retains priority over these bulk services.
+Hosts MUST bound counts, packet lengths, partial-packet buffering, listener backlogs, pending handshakes, queued writes and cleanup times. Capacity remains charged from reservation through completed cleanup, including pending and closing endpoints; cancelling a request does not release capacity while its backend still owns resources. A single SFTP stream or listener MUST NOT block unrelated session channels while waiting for a socket, process or peer. Backpressure must propagate to the original endpoint; a gateway MUST NOT regain credit early by adding an unbounded queue. Session/input traffic retains priority over these bulk services.
 
 ## 5. SSH gateways (interoperability guidance)
 
@@ -223,6 +225,7 @@ This section maps these services to [SSH connection semantics (RFC 4254)](https:
 - A gateway serving VROOM over an authenticated SSH connection can map an authorized SFTP alias to the SSH `sftp` subsystem, direct TCP to `direct-tcpip`, and reverse listeners to `tcpip-forward`/`forwarded-tcpip`. Cancelling a reverse listener maps to `cancel-tcpip-forward`.
 - A gateway accepting SSH and using an administrator-configured VROOM target maps those requests in the other direction. It must authorize terminal access, file services and each forwarding direction separately. Terminal mutations still require the terminal lease kinds specified by VROOM-Terminal.
 - The gateway must preserve SSH host-key verification, authentication boundaries, byte order, half-close and explicit request failures. It must not turn an SSH username, subsystem name or destination into an unchecked VROOM host alias, executable or local target.
+- An SSH reverse listener may produce backend channel opens before VROOM activation. The gateway must withhold VROOM channel publication until TCP_ACTIVATE and either bound those pending backend opens or refuse them. Activation expiry or cancellation still closes the backend listener and its pending opens.
 - If an SSH backend resolves or connects outside the gateway, required destination/address policy must be enforced there or the gateway must pass a checked address. A gateway that cannot enforce a configured restriction must refuse, not claim that a name-only check enforces an address restriction.
 - Unsupported SSH requests must fail explicitly. Agent forwarding, X11, arbitrary subsystem execution, credential delegation and per-user operating-system process switching are outside this version. Advertised extensions and bind-address semantics must be preserved or refused, never silently weakened.
 
