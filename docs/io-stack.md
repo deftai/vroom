@@ -11,6 +11,7 @@ Channel names, message types, encodings and delivery live in the specs:
 - [VROOM-Terminal.md](../VROOM-Terminal.md)
 - [VROOM-Structural.md](../VROOM-Structural.md)
 - [VROOM-Browsable.md](../VROOM-Browsable.md)
+- [VROOM-Services.md](../VROOM-Services.md): optional SFTP and TCP services, whose byte streams use `pipe/1` independently of the session's structured encoding
 
 Mux framing, channel lifecycle and transport bindings live in [xumux](https://xumux.org) 0.3 ([spec repo](https://github.com/deftai/xumux), [core](https://github.com/deftai/xumux/blob/main/spec/core.md)). xumux describes its own layers in [docs/design/io-stack.md](https://github.com/deftai/xumux/blob/main/docs/design/io-stack.md). The TypeScript mux implementation is [libxumux](https://github.com/deftai/libxumux).
 

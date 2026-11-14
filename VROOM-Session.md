@@ -83,6 +83,8 @@ Structured messages use CBOR by default and JSON where negotiated. SESSION_HELLO
 
 `client_id` is the host's name for this connection, as LEASE_STATE and ACTIVITY use it. `leases` is what the host supports of [§4](#4-the-control-lease)'s lease features.
 
+SESSION_WELCOME MAY also contain `services`, describing optional [file transfer and TCP forwarding](./VROOM-Services.md). Services are independent of surface types and their control leases. An absent service is unavailable; clients MUST NOT infer authorization from a type, lease or lease grant, and older clients ignore the optional field. Service byte-stream channels declare `pipe/1` rather than a surface-type profile; their structured control channels use the profile specified by the service.
+
 The host lists only the types it offers. A daemon MAY offer one type. A deployment MAY run one process per type, and clients MUST NOT assume that the types share a process.
 
 ---

@@ -8,6 +8,7 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 ## [Unreleased]
 
 ### Added
+- Optional VROOM Services: SFTP v3 over `pipe/1`, direct TCP reservations and reverse listeners over a separate control channel, per-principal policy and explicit resource/cleanup bounds. SESSION_WELCOME may advertise `services` independently of surface types and leases.
 - VROOM-Session spec: the shared base (control lease, revisions and guards, settling, act result, surfaces and coordinates, error codes)
 - VROOM-Browsable spec: browsers as a fourth type (tabs, page tree, navigation, network and console events, storage, dialogs, tab video)
 - [docs/io-stack.md](./docs/io-stack.md): non-normative guide to running VROOM 0.2 channels on xumux 0.3, with per-channel codecs and presets; README and spec pointers
