@@ -6,7 +6,7 @@ Version: 0.1.0-draft | Status: Draft | Date: 2026-11-13
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used as described in RFC 2119.
 
-These services use an authenticated [VROOM-Session](./VROOM-Session.md). They are not surface types: a host may offer file transfer without a desktop, or terminals without file or network access. Surface leases and lease grants do not authorize either service.
+These services use an authenticated [VROOM-Session](./VROOM-Session.md). They are not surface types: a host may offer file transfer without a desktop, or terminals without these file-transfer or forwarding services. Surface leases and lease grants do not authorize either service.
 
 This version defines SFTP v3, direct TCP connections and reverse TCP listeners. It does not define UDP, dynamic SOCKS, arbitrary process execution, Unix-socket forwarding, credential delegation or switching operating-system users.
 
@@ -52,7 +52,9 @@ SESSION_WELCOME MAY contain `services`. An absent service is unavailable; client
 
 All advertised limits are required positive integers for the service offered. The example values are not defaults. `max_streams`, TCP reservations/connections/listeners and pending accepts are counted per authenticated VROOM session. SFTP `max_requests` and `max_handles` apply to each SFTP stream; `max_packet_bytes` applies to each complete packet. TCP `max_ids` bounds the total connection and listener IDs issued during the entire authenticated VROOM session, across control-channel instances, including expired and failed allocations. Hosts MUST also enforce finite global limits. Services MUST NOT advertise features that their backends cannot enforce. A host offering only direct or only reverse TCP sets the other boolean to `false` and may omit limits used exclusively by that disabled direction.
 
-The host lists only services and aliases enabled for this principal. Advertisement describes availability, not irrevocable permission. Each channel, file operation, connection and bind remains subject to operator policy. Policy MUST independently control file-service aliases, direct destinations and reverse bind addresses. `client.kind`, a terminal attachment, a surface lease, an origin address and an opaque service ID are not substitutes for this authorization.
+This separation governs protocol entry points; it does not sandbox commands already authorized through a terminal or applications controlled through a desktop. SFTP names the file protocol here, not an SSH transport: confidentiality and integrity come from the VROOM transport or its enclosing secure channel.
+
+The host lists only services and aliases enabled for this principal. Advertisement describes availability, not irrevocable permission. Each channel, file operation, connection and bind remains subject to operator policy. Policy MUST independently control file-service aliases, direct destinations and reverse bind addresses and ports. `client.kind`, a terminal attachment, a surface lease, an origin address and an opaque service ID are not substitutes for this authorization.
 
 Services MUST open only after SESSION_WELCOME. An unsupported profile, disabled service or unauthorized alias/channel is rejected before opening its endpoint. Changing policy may revoke active resources; revocation MUST close the affected resources and MUST NOT silently attach them to a different alias or destination.
 

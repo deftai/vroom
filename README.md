@@ -32,7 +32,7 @@ graph TB
     S["VROOM-Session<br/>lease · revisions · settling · act result"] --> X["xumux<br/>WebSocket · WebRTC · QUIC · TCP · stdio"]
 ```
 
-Optional [VROOM Services](./VROOM-Services.md) add SFTP v3 and direct/reverse TCP forwarding beside these four types. They are advertised separately and require separate operator authorization; terminal or desktop access does not imply file or network access.
+Optional [VROOM Services](./VROOM-Services.md) add SFTP v3 and direct/reverse TCP forwarding beside these four types. They are advertised separately and require separate operator authorization; terminal or desktop access does not implicitly enable these services.
 
 ## Which type do I use?
 
