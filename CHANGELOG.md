@@ -8,6 +8,7 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 ## [Unreleased]
 
 ### Added
+- VROOM-Graphical: optional `position` metadata for display and window placement, with unknown placement preserved and display/window lease coverage restricted to a common originating desktop
 - VROOM-Session spec: the shared base (control lease, revisions and guards, settling, act result, surfaces and coordinates, error codes)
 - VROOM-Browsable spec: browsers as a fourth type (tabs, page tree, navigation, network and console events, storage, dialogs, tab video)
 - [docs/io-stack.md](./docs/io-stack.md): non-normative guide to running VROOM 0.2 channels on xumux 0.3, with per-channel codecs and presets; README and spec pointers

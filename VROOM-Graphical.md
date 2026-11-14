@@ -46,6 +46,29 @@ Channels open when needed: a watching client opens no input channels, and an age
 
 On a reliable path, `cursor` and `pointer` still work: senders coalesce to the latest value while the channel lacks credit.
 
+### 2.1 Surface placement
+
+A Graphical surface in [Session's SURFACES](./VROOM-Session.md#3-surfaces-and-coordinates) MAY include `position: {"x": ..., "y": ...}` for either a display or a window. It is the surface's top-left in its originating desktop's logical coordinate space. Both numbers MUST be finite; negative coordinates are valid. For example, a display to the left of the desktop origin may be described as:
+
+```json
+{
+  "id": "display:2",
+  "num": 2,
+  "title": "Left display",
+  "bounds": { "x": 0, "y": 0, "w": 1280, "h": 1024 },
+  "position": { "x": -1280, "y": 0 },
+  "scale": 1.0
+}
+```
+
+`position` describes placement only. Input, image regions and other coordinates naming the surface remain relative to its own top-left; clients MUST NOT add `position` to coordinates they send to that surface. `bounds.x` and `bounds.y` are not a substitute for desktop placement.
+
+A host SHOULD include placement when it knows it, and MUST omit `position` when it does not. A missing `position` means unknown, not `(0, 0)`. Hosts MUST update SURFACES when reported placement changes, including window movement and display rearrangement, or when previously reported placement becomes unknown. Existing clients may ignore this optional field.
+
+Display/window lease relationships ([Session §4.1](./VROOM-Session.md#41-asking-renewing-and-releasing)) may be resolved from current placement and the surface's `bounds.w` and `bounds.h`. When using this geometry, a window belongs to each display whose rectangle has a positive-area intersection with its own; touching edges alone do not overlap. The rectangles MUST be in the same originating desktop's coordinate space.
+
+A relay MUST preserve that separation: its native desktop and different upstream desktops do not become related merely because their coordinates overlap. A shared immediate upstream connection or alias does not establish a common desktop when that upstream relays multiple origins. If placement or origin is unknown or ambiguous, a relay MUST NOT infer display/window lease coverage from it or claim that the metadata establishes that coverage. Missing metadata does not prevent independently leasing the window itself.
+
 ---
 
 ## 3. Video
