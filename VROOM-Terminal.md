@@ -554,18 +554,18 @@ A VROOM host whose terminals run on an SSH server: VROOM clients and agents reac
 
 | VROOM | SSH |
 |---|---|
-| PTY_OPEN, SESSION_NEW, WINDOW_NEW, SPLIT | A `session` channel with `pty-req` and `shell` or `exec` for each terminal. The gateway runs the emulator, and keeps the sessions, windows and layouts |
+| PTY_OPEN, SESSION_NEW, WINDOW_NEW, SPLIT | A `session` channel with `pty-req`, `env`, and `shell` or `exec` for each terminal, the command and its arguments quoted for the server's shell. A `cwd` becomes `cd -- <cwd> && exec <command>`, as SSH has no working directory of its own. The gateway runs the emulator, and keeps the sessions, windows and layouts |
 | INPUT, OUTPUT | Channel data |
 | RESIZE, WINDOW_RESIZE | `window-change` for each terminal whose size changes |
-| SIGNAL | `signal`. Many servers ignore it, and the gateway reports the result it sees |
+| SIGNAL | `signal`, by RFC 4254's names. SSH has no reply to it and many servers ignore it, so the gateway reports success once sent. `TSTP`, `CONT` and `WINCH` have no RFC 4254 name, and the gateway refuses them with `4605` |
 | PTY_CLOSE | Closing the SSH channel |
 | `vroom.terminal.sftp` | The `sftp` subsystem on a `session` channel |
 | `vroom.terminal.tcp` | `direct-tcpip` |
 | LISTEN, UNLISTEN, `vroom.terminal.accept` | `tcpip-forward`, `cancel-tcpip-forward`, and each `forwarded-tcpip` channel |
 
-- The gateway MUST verify the SSH server's host key against keys it was configured with or has recorded, and MUST NOT connect to one that doesn't match. It uses its own configured credentials; a VROOM client can't supply them, nor learn them, as with a `remote` pane ([§9](#9-security)).
+- The gateway MUST verify the SSH server's host key against keys it was configured with or has recorded, and MUST NOT connect to one that doesn't match: a recorded key of another type is a mismatch, a key marked `@revoked` is refused, and an unknown host is refused unless the gateway was explicitly configured to record new keys, which never replaces a recorded one. It checks the key before it authenticates. It uses its own configured credentials; a VROOM client can't supply them, nor learn them, as with a `remote` pane ([§9](#9-security)).
 - The gateway's allow-lists for `connect` and `listen` apply before the SSH server's own, so a client reaches only what both permit.
-- Terminals outlive the VROOM connection as on any host, for as long as the gateway keeps their SSH channels open. If the SSH connection drops, its terminals exit, and PTY_STATE says so.
+- Terminals outlive the VROOM connection as on any host, for as long as the gateway keeps their SSH channels open. If the SSH connection drops, its terminals exit, and PTY_STATE says so, with `exit_code` `255`, as OpenSSH's client reports a lost connection. Connecting to the server, which can take long, MUST NOT hold up the host's other terminals.
 
 ---
 
