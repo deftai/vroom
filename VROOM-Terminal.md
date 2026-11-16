@@ -500,7 +500,7 @@ Both directions of SSH's TCP forwarding, as `pipe/1` channels ([xumux Pipe](http
 
 As SSH's `-L` and `direct-tcpip`: the client asks the host to connect somewhere it can reach.
 
-- The client opens a channel named `vroom.terminal.tcp`, profile `pipe/1`, with a `target` of `tcp:host:port` and, where the host allows it, `unix:/path`.
+- The client opens a channel named `vroom.terminal.tcp`, profile `pipe/1`, with a `target` of `tcp:host:port` and, where the host allows it, `unix:/path`. An IPv6 address is written in brackets, as `tcp:[::1]:22`, here and wherever these sections write an address.
 - The host connects before acknowledging, as `pipe/1` says: `4010` if the target isn't allowed, `4500` if it can't be reached, and `4011` at a resource limit. A host that doesn't offer `connect` rejects every such channel with `4010`.
 - The host MUST check every target against an allow-list, field by field, as `pipe/1`'s security considerations say, and SHOULD check the address a name resolves to where it must not reach certain networks. It MUST NOT accept `exec:` or listening targets here.
 
@@ -510,14 +510,16 @@ As SSH's `-R` and `tcpip-forward`: the host listens, and sends each connection i
 
 | Type | Name | Dir | Body |
 |---|---|---|---|
-| `0x30` | LISTEN | C→S | `host?` (the address to listen on, loopback by default), `port` (`0` for one the host picks) |
+| `0x30` | LISTEN | C→S | `request_id`, `host?` (the address to listen on, loopback by default), `port` (`0` for one the host picks) |
 | `0x31` | LISTEN_STATE | S→C | `listen` (an ID), `state` (`listening` or `closed`), `host`, `port`, `reason?`. In answer to LISTEN and UNLISTEN, and when a listener fails |
-| `0x32` | UNLISTEN | C→S | `listen`: stop listening. Connections already accepted carry on |
+| `0x32` | UNLISTEN | C→S | `request_id`, `listen`: stop listening. Connections already accepted carry on. Answered once the host has stopped listening |
 
 - For each connection it accepts, the host opens a channel to the client named `vroom.terminal.accept`, profile `pipe/1`, with `listen` (the listener's ID) and `peer` (the connecting address, as `tcp:host:port`) in its metadata and no `target`. The client's own configuration decides where to connect it, as SSH's `-R` does, and the client answers as a `pipe/1` responder: `4500` if its end can't be reached.
-- A host MUST listen only where it was configured to allow, refusing other LISTENs with `4603`. It SHOULD allow loopback only by default, as OpenSSH's `GatewayPorts no` does, and MUST NOT listen on a port it was asked for when the port is already in use, refusing with `4603` instead.
+- A host MUST listen only where it was configured to allow, refusing other LISTENs with `4603`. It SHOULD allow loopback only by default, as OpenSSH's `GatewayPorts no` does: `127.0.0.1`, `::1`, and `localhost` only if it binds `localhost` to loopback addresses alone. It MUST NOT listen on a port it was asked for when the port is already in use, and refuses a LISTEN over its limit of listeners for a connection, with `4603` in both cases.
 - A listener belongs to the connection that asked for it, and ends with it. Unlike terminals, forwards don't outlive their connection.
 - The host MUST emit ACTIVITY when a listener opens and closes, and for each connection it accepts, naming the address and the peer.
+
+ACTIVITY for files and forwarding has no `surface`, as these act on none. A host SHOULD keep refusals in its local log too, including channels it rejects before they open, which ACTIVITY can't report.
 
 ---
 

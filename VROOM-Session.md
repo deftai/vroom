@@ -301,7 +301,7 @@ Every action in every type returns this shape, so that an agent always learns wh
 
 ## 8. Audit
 
-A host MUST emit ACTIVITY for every action it performs: time, client, surface, action, target, result, and the lease it was taken under. For a client that joined the lease, ACTIVITY names both that client and the lease's owner. It SHOULD also keep a local log. Text typed into a field the host knows is secret MUST be redacted.
+A host MUST emit ACTIVITY for every action it performs: time, client, surface, action, target, result, and the lease it was taken under. An action on no surface, such as a file transfer or a forwarded connection in Terminal, has no `surface` and no lease. For a client that joined the lease, ACTIVITY names both that client and the lease's owner. It SHOULD also keep a local log. Text typed into a field the host knows is secret MUST be redacted.
 
 ---
 
