@@ -225,8 +225,10 @@ On `vroom.terminal.pty.<n>`:
 | `0x01` | OUTPUT | S→C | Bytes the program wrote, as written |
 | `0x02` | INPUT | C→S | Bytes for the program, as the client's terminal produced them |
 | `0x03` | REDRAW | S→C | Bytes that draw the current screen from blank, images included, sent first on attaching |
+| `0x04` | EXITED | S→C | `exit_code?`, `signal?`: the program has exited, and no more OUTPUT follows on this channel. A host that doesn't send it is of an earlier draft |
 
 - The host MUST pass output through unchanged, in order, including sequences its emulator doesn't understand. The one exception is the pane interface's own query and start request, which are addressed to the host ([§7.6.1](#761-finding-the-host)).
+- When the program exits, the host sends EXITED on each attached channel after the program's last OUTPUT. PTY_STATE `exited` on the control channel isn't ordered with the terminal's bytes, so a client that needs all of the output, such as a gateway, waits for EXITED.
 - On attaching, the host sends REDRAW, then OUTPUT from that point. A client that reconnects to a running terminal sees its screen at once: its text, styles and sized text, and its images, transmitted and placed again.
 - REDRAW also restores the modes the program set, so that the client's terminal sends what the program expects: application cursor and keypad modes, bracketed paste, the Kitty keyboard flags in force, mouse reporting modes, focus reporting, the alternate screen, the scroll region, the cursor's shape and visibility, and the title. A host keeps the image data placements need for as long as they're on the screen or in scrollback.
 - Graphics a client's terminal can't show (a Kitty image to a terminal without Kitty graphics, say, from its TERM_HELLO) are still passed through: the program asked for them, and a host doesn't rewrite output. A program should check what the terminal supports, as it would locally.
@@ -533,17 +535,17 @@ An SSH server in front of a VROOM host: SSH clients, `sftp`, `scp`, `rsync` over
 
 | SSH | VROOM |
 |---|---|
-| `session` channel with `pty-req`, then `shell` or `exec` | PTY_OPEN with `shell` or the command, `term`, `rows`, `cols`, `xpix` and `ypix` from `pty-req`, then PTY_ATTACH. Channel data is INPUT and OUTPUT |
+| `session` channel with `pty-req`, then `shell` or `exec` | PTY_OPEN with `shell`, or for `exec` the user's shell as `command` with `args` `["-c", <the command line>]`, as sshd runs it; `term`, `rows`, `cols`, `xpix` and `ypix` from `pty-req`; then PTY_ATTACH. Channel data is INPUT and OUTPUT |
 | `env` | PTY_OPEN `env`, limited to the variables the gateway is configured to pass |
 | `window-change` | RESIZE, or WINDOW_RESIZE where the terminal shares its window |
 | `signal` | SIGNAL |
-| `exit-status`, `exit-signal` | PTY_STATE `exited`, then the gateway closes the SSH channel |
+| `exit-status`, `exit-signal` | EXITED on the terminal's channel ([§6](#6-the-byte-stream)), once its last OUTPUT is written, then PTY_CLOSE and the gateway closes the SSH channel |
 | `subsystem` `sftp` | A `vroom.terminal.sftp` channel, bytes passed through both ways ([§10](#10-file-transfer)) |
 | `direct-tcpip` | A `vroom.terminal.tcp` channel with the `target` it names ([§11.1](#111-connecting-out)) |
 | `tcpip-forward`, `cancel-tcpip-forward` | LISTEN and UNLISTEN. Each `vroom.terminal.accept` becomes a `forwarded-tcpip` channel ([§11.2](#112-listening)) |
 
 - The gateway authenticates SSH users by its own configuration, and connects to the VROOM host as a client with credentials it was configured with for that user. It MUST NOT pass a user's SSH credentials on, and the host's rules for that client, its rank among them, apply to everything the user does.
-- A terminal's INPUT and RESIZE need leases ([§7.3](#73-leases)). The gateway takes `input` and `size` on each terminal it opens, renewing them while the SSH channel is open.
+- A terminal's INPUT, RESIZE and PTY_CLOSE need leases, and WINDOW_RESIZE one on its session ([§7.3](#73-leases)). PTY_OPEN makes a session of its own for each terminal, so the gateway takes `input`, `size` and `arrange` on that session, covering its terminal, and renews the lease while the SSH channel is open.
 - An `exec` without `pty-req` has no terminal in VROOM. A gateway refuses it, unless it is configured to run it in one, in which case the program's output passes through a terminal's line discipline: fine for most commands, not for binary protocols. `x11-req`, `auth-agent-req@openssh.com` and `streamlocal` forwarding are refused.
 
 ### 12.2 `vroom-to-ssh`
