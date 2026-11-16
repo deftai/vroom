@@ -565,6 +565,9 @@ A VROOM host whose terminals run on an SSH server: VROOM clients and agents reac
 
 - The gateway MUST verify the SSH server's host key against keys it was configured with or has recorded, and MUST NOT connect to one that doesn't match: a recorded key of another type is a mismatch, a key marked `@revoked` is refused, and an unknown host is refused unless the gateway was explicitly configured to record new keys, which never replaces a recorded one. It checks the key before it authenticates. It uses its own configured credentials; a VROOM client can't supply them, nor learn them, as with a `remote` pane ([§9](#9-security)).
 - The gateway's allow-lists for `connect` and `listen` apply before the SSH server's own, so a client reaches only what both permit.
+- Files and forwarding then act on the SSH server, not the gateway's machine: `connect` targets are resolved and reached by the server, and `listen` addresses, `loopback` included, are the server's. The gateway's allow-lists name what the server may reach and where it may listen.
+- SFTP bytes pass through to the server's `sftp` subsystem, so the server's own permissions confine them, not [§10](#10-file-transfer)'s directories, and the gateway can't record each operation: it records the channel's opening and closing. A gateway SHOULD offer files this way only when configured to, apart from offering its own.
+- The gateway MUST refuse every channel the SSH server opens that it didn't ask for, accepting only `forwarded-tcpip` for a listener it asked for: a server could otherwise open sessions, agent or X11 channels into the gateway.
 - Terminals outlive the VROOM connection as on any host, for as long as the gateway keeps their SSH channels open. If the SSH connection drops, its terminals exit, and PTY_STATE says so, with `exit_code` `255`, as OpenSSH's client reports a lost connection. Connecting to the server, which can take long, MUST NOT hold up the host's other terminals.
 
 ---
