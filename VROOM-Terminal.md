@@ -483,18 +483,18 @@ As in every type, a person outranks an agent ([Session §4](./VROOM-Session.md#4
 A client transfers files with SFTP, carried unchanged, so existing SFTP clients and libraries work over VROOM and a gateway to SSH passes the bytes through ([§12](#12-gateways)).
 
 - The client opens a channel named `vroom.terminal.sftp`, reliable and ordered, with the xumux profile `pipe/1` ([xumux Pipe](https://xumux.org)) in place of a VROOM profile, and no `target`. A host that doesn't offer file transfer (TERM_HELLO `files`, [§3](#3-handshake)) rejects the channel with `4010`, and so does a host given a `target`.
-- The pipe's bytes are SFTP version 3 (draft-ietf-secsh-filexfer-02) exactly as an SSH `sftp` subsystem carries them: length-prefixed packets, starting with SSH_FXP_INIT. Message boundaries carry no meaning, as in any pipe.
+- The pipe's bytes are SFTP version 3 (draft-ietf-secsh-filexfer-02) exactly as an SSH `sftp` subsystem carries them: length-prefixed packets, starting with SSH_FXP_INIT. Message boundaries carry no meaning, as in any pipe. SSH_FXP_SYMLINK takes its two paths in the order OpenSSH sends them, the target first and the link second, which is the reverse of the draft's and what deployed clients expect.
 - A host MAY offer the SFTP extensions it supports, announced in SSH_FXP_VERSION as SFTP says, such as `posix-rename@openssh.com`. A client MUST NOT depend on one the host didn't announce.
-- Files are read and written as the host's user. A host SHOULD confine each channel to the directories it was configured for, resolving every path, symbolic links included, before checking it, and SHOULD answer a path outside them with SSH_FX_PERMISSION_DENIED.
+- Files are read and written as the host's user. A host SHOULD confine each channel to the directories it was configured for, resolving every path, symbolic links included, before checking it, and SHOULD answer a path outside them with SSH_FX_PERMISSION_DENIED. Resolving and opening SHOULD be one step, walking a path a component at a time from the directories without following links, so that a link swapped in between can't escape them. A hard link to a file outside, made by other means, can't be told apart from the file, so the directories SHOULD hold only what clients may reach.
 - A client MAY open several SFTP channels at once, each with its own SFTP session. Each ends when either side closes its pipe, and all end with the connection.
-- File transfer needs no lease: files aren't surfaces. A host MAY offer it only to the clients its configuration names, rejecting others' channels with `4010`.
-- The host MUST emit ACTIVITY ([Session §8](./VROOM-Session.md#8-audit)) when an SFTP channel opens and closes, and SHOULD emit it for each operation that changes a file (write, remove, rename, set attributes), naming the operation and the path, never the data.
+- File transfer needs no lease: files aren't surfaces. A host MAY offer it only to the clients its configuration names, by the credentials they connected with (xumux `auth`), since the channel may open before SESSION_HELLO; it rejects others' channels with `4010`.
+- The host MUST emit ACTIVITY ([Session §8](./VROOM-Session.md#8-audit)) when an SFTP channel opens and closes, and SHOULD emit it for each operation that changes a file (opening one for writing, removing, renaming, setting attributes, making or removing a directory or link), naming the operation and the path, never the data. One record for opening a file to write is enough; a record for each SSH_FXP_WRITE would flood the log.
 
 ---
 
 ## 11. Port forwarding
 
-Both directions of SSH's TCP forwarding, as `pipe/1` channels ([xumux Pipe](https://xumux.org)). Forwarding needs no lease: a host offers it only as configured (TERM_HELLO `forward`, [§3](#3-handshake)), and MAY offer it only to the clients its configuration names.
+Both directions of SSH's TCP forwarding, as `pipe/1` channels ([xumux Pipe](https://xumux.org)). Forwarding needs no lease: a host offers it only as configured (TERM_HELLO `forward`, [§3](#3-handshake)), and MAY offer it only to the clients its configuration names, by the credentials they connected with.
 
 ### 11.1 Connecting out
 
