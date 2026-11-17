@@ -139,7 +139,7 @@ On `vroom.terminal.control`. Requests carry `request_id`, and errors are Session
 | `0x2A` | WINDOW_RESIZE | C→S | `window`, `rows`, `cols`, `xpix?`, `ypix?`: the whole window, its panes taking their shares of it |
 | `0x2B` | PRIVATE | C→S | `pty` or `session`, `on`: whether it's private, so that agents may neither read nor type in it ([§8.1](#81-private-terminals)). Answered with MUX_STATE |
 | `0x30`–`0x32` | LISTEN, LISTEN_STATE, UNLISTEN | | Port forwarding in ([§11.2](#112-listening)) |
-| `0x33` | RUN_SIGNAL | C→S | `run`, `signal`: a signal for a program without a terminal ([§6.3](#63-programs-without-a-terminal)) |
+| `0x33` | RUN_SIGNAL | Both | C→S: `run`, `signal`: a signal for a program without a terminal ([§6.3](#63-programs-without-a-terminal)). S→C: `run`, once the signal is sent |
 
 Closing, resizing, signalling, input, actions and arranging need a lease of the kind [§7.3](#73-leases) names, on the terminal or its session ([Session §4](./VROOM-Session.md#4-the-control-lease)). PTY_OPEN and SESSION_NEW need none, as they make a session of their own and change no one else's, and give the opener no lease. Watching (PTY_LIST, PTY_ATTACH, SCREEN_REQ, CHANGES_REQ) needs none. A terminal whose program has exited stays listed, with its last screen, until PTY_CLOSE.
 
@@ -284,7 +284,7 @@ Some programs speak a protocol over their standard input and output, and a termi
 | `0x04` | CLOSE_STDIN | C→S | Empty: the client sends no more input, and the host closes the program's standard input once it has written what came before |
 | `0x05` | EXIT | S→C | `exit_code?`, `signal?`: the program has ended. The last message: sent after all of its STDOUT and STDERR |
 
-- **Signals** go on `vroom.terminal.control`, apart from the program's input, so that a program that has stopped reading can still be stopped or continued: RUN_SIGNAL (`0x33`, C→S) with `request_id`, `run` and `signal` by name as in [§4](#4-messages), answered with an empty reply or `4602` if no such program runs.
+- **Signals** go on `vroom.terminal.control`, apart from the program's input, so that a program that has stopped reading can still be stopped or continued: RUN_SIGNAL (`0x33`) with `request_id`, `run` and `signal` by name as in [§4](#4-messages). The host answers with RUN_SIGNAL carrying the same `request_id` and `run` once it has sent the signal, or with `4602` if no such program runs.
 - **Bytes.** Message boundaries carry no meaning. Flow control is xumux's ([Session §1](./VROOM-Session.md#1-on-xumux)): the host returns credit for STDIN only once it is written to the program, and a slow client holds the program back rather than the host buffering without bound.
 - **Ending.** The host closes the channel after EXIT. A client that closes the channel first ends the program: the host sends it `SIGHUP`, then `SIGKILL` if it hasn't ended a few seconds later. A program doesn't outlive its connection: unlike a terminal, it has no screen to come back to. A gateway to SSH can only ask: see [§12.2](#122-vroom-to-ssh).
 - **Who may.** A program run this way is as powerful as a terminal's, so a host offers `run` only where it offers `exec` ([§3](#3-handshake)), and MAY limit it to the programs its configuration names. A host that limits them MUST refuse `command` with `4010`, since a shell command line can run anything (`a; b`, `$(b)`), and accept only an `argv` whose program it names, matched exactly, never by a pattern. It needs no lease, as PTY_OPEN needs none, and isn't a surface.
