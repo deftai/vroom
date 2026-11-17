@@ -115,7 +115,7 @@ On `vroom.terminal.control`. Requests carry `request_id`, and errors are Session
 | `0x28` | RENAME | C→S | `session`, `window` or `pty`, and `name` |
 | `0x29` | KILL | C→S | `session`, `window` or `pty`: closes it and everything in it |
 | `0x2A` | WINDOW_RESIZE | C→S | `window`, `rows`, `cols`, `xpix?`, `ypix?`: the whole window, its panes taking their shares of it |
-| `0x2B` | PRIVATE | C→S | `pty` or `session`, `on`: whether agents may read it ([§8.1](#81-private-terminals)). Answered with MUX_STATE |
+| `0x2B` | PRIVATE | C→S | `pty` or `session`, `on`: whether agents may read and type in it ([§8.1](#81-private-terminals)). Answered with MUX_STATE |
 
 Closing, resizing, signalling, input, actions and arranging need a lease of the kind [§7.3](#73-leases) names, on the terminal or its session ([Session §4](./VROOM-Session.md#4-the-control-lease)). PTY_OPEN and SESSION_NEW need none, as they make a session of their own and change no one else's, and give the opener no lease. Watching (PTY_LIST, PTY_ATTACH, SCREEN_REQ, CHANGES_REQ) needs none. A terminal whose program has exited stays listed, with its last screen, until PTY_CLOSE.
 
@@ -452,20 +452,24 @@ A window's layout may hold surfaces of any VROOM type, not only terminals. A lea
 
 ## 8. Leases and people
 
-As in every type, a person outranks an agent ([Session §4](./VROOM-Session.md#4-the-control-lease)). A person typing into a terminal holds its `input` lease, and an agent's actions there fail with `4600` until they release it, unless both hold it shared ([Session §4.3](./VROOM-Session.md#43-conflicts-rank-and-sharing)). Watching is open to both: an agent may read the screen while a person types, and a person may watch an agent work, unless a person has made the terminal private.
+As in every type, a person outranks an agent ([Session §4](./VROOM-Session.md#4-the-control-lease)). A person typing into a terminal holds its `input` lease, and an agent's actions there fail with `4600` until they release it, unless both hold it shared ([Session §4.3](./VROOM-Session.md#43-conflicts-rank-and-sharing)). Watching is open to both: an agent may read the screen while a person types, and a person may watch an agent work, unless a person has made the terminal private ([§8.1](#81-private-terminals)), when agents may neither read nor type in it without a person's grant.
 
 ### 8.1 Private terminals
 
-A terminal shows what its programs print, secrets included: a token a command prints, a key a file holds. A person can make a terminal private, so that agents can't read it, while they work in it.
+A terminal shows what its programs print, secrets included: a token a command prints, a key a file holds. A person can make a terminal private, so that agents keep their hands off it, neither reading nor typing, unless a person invites them.
 
-- **Who.** Only a client whose own `client.kind` is `human` sends PRIVATE, or opens a terminal with `private: true` (PTY_OPEN, and the first pane of SESSION_NEW, WINDOW_NEW and SPLIT). Anyone else's is refused with `4603`, a joiner acting with a person's rank included. PRIVATE needs no lease. Making a session private makes each of its panes private, those it gains later too, until it's made public again.
-- **What agents can't do.** On a private terminal, a client acting with agent rank can't read: SCREEN_REQ, CHANGES_REQ, IMAGE_REQ, SCREENSHOT_REQ and PTY_ATTACH are refused with `4603`, with `detail.reason` `private`. A host closes the agent's `vroom.terminal.pty.<n>` channels on it when it becomes private, sends it no screen text in act results ([Session §7](./VROOM-Session.md#7-the-act-result)), and doesn't wait for text on its behalf (ACT `wait`). In PTY_LIST and MUX_STATE, it sees the terminal with `private: true` and without its `title`, which a program sets and can carry text.
-- **What they still can.** Being private is about reading, not acting. An agent holding `input` may still type into a private terminal, and its other operations need what they always do ([§7.3](#73-leases)).
-- **Letting an agent read.** A person who holds a lease on a private terminal, or its session, with the kind `read` ([Session §4.2](./VROOM-Session.md#42-kinds)), can grant it ([Session §4.4](./VROOM-Session.md#44-grants)), narrowed to `read` and the panes it means. A client that joins by the grant reads those panes with the person's rank, for as long as the lease lasts. That is the only way an agent reads a private terminal: a lease of kind `read` that an agent asks for itself, on a private terminal, is refused with `4603`.
-- **Lasting.** A terminal stays private until a person makes it public again (PRIVATE with `on: false`). It outlives the connection that made it private, as the terminal does.
-- **People.** Private doesn't stop people: a person's client reads a private terminal as any other. A host SHOULD show that a terminal is private to the people who see it.
-- **Audit.** ACTIVITY ([Session §8](./VROOM-Session.md#8-audit)) records a terminal becoming private and public, and each read refused because it was.
-- **Other surfaces.** A `remote` pane ([§7.7](#77-panes-of-other-types)) made private is private here; the host it comes from has rules of its own. A program owning panes ([§7.6](#76-programs-that-own-panes)) reads its own, private or not, as the person whose terminal it runs in would.
+- **Making it private.** Only a client whose own `client.kind` is `human` sends PRIVATE with `on: true`, or opens a terminal with `private: true` (PTY_OPEN, and the first pane of SESSION_NEW, WINDOW_NEW and SPLIT). Anyone else's is refused with `4603`, a joiner acting with a person's rank included. It needs no lease, so that a person who sees a secret can hide it at once, even while an agent holds the terminal. Making a session private makes each of its panes private, those it gains later too.
+- **Making it public.** PRIVATE with `on: false` needs a client whose own `client.kind` is `human` and who holds `input` on the terminal or its session ([§7.3](#73-leases)): revealing is deliberate, by the person in control of it then, and one person can't quietly undo another's choice while the other still holds it. Others are refused with `4603`.
+- **What agents can't do.** On a private terminal, a client acting with agent rank can neither read nor give input.
+  - **Reading:** SCREEN_REQ, CHANGES_REQ, IMAGE_REQ, SCREENSHOT_REQ and PTY_ATTACH are refused. The host closes the agent's `vroom.terminal.pty.<n>` channels on it when it becomes private, sends it no screen text in act results ([Session §7](./VROOM-Session.md#7-the-act-result)), and doesn't wait for text on its behalf (ACT `wait`).
+  - **Input:** INPUT, SIGNAL and ACT are refused, whatever leases the agent holds, so that it can't type into a prompt it can't see.
+  - Each refusal is `4603`, with `detail.reason` `private`.
+  - In PTY_LIST and MUX_STATE, the agent sees the terminal with `private: true` and without its `title`, which a program sets and can carry text. Its other operations, arranging and sizing, need what they always do.
+- **Letting an agent in.** A person who holds a lease on a private terminal, or its session, can grant it ([Session §4.4](./VROOM-Session.md#44-grants)), narrowed to the panes it means and to `read` ([Session §4.2](./VROOM-Session.md#42-kinds)), `input`, or both. A client that joins by the grant reads, or types into, those panes with the person's rank, for as long as the lease lasts. That is the only way an agent reads or types into a private terminal: a `read` lease that an agent asks for itself, on a private terminal, is refused with `4603`, and its own `input` lease there doesn't let it type.
+- **Lasting.** A terminal stays private until a person makes it public again. It outlives the connection that made it private, as the terminal does.
+- **People.** Private doesn't stop people: a person's client reads and types in a private terminal as in any other, under the usual leases. A host SHOULD show that a terminal is private to the people who see it.
+- **Audit.** ACTIVITY ([Session §8](./VROOM-Session.md#8-audit)) records a terminal becoming private and public, and each read or input refused because it was.
+- **Other surfaces.** A `remote` pane ([§7.7](#77-panes-of-other-types)) made private is private here; the host it comes from has rules of its own. A program owning panes ([§7.6](#76-programs-that-own-panes)) reads and writes its own, private or not, as the person whose terminal it runs in would.
 
 ---
 
