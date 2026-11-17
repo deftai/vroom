@@ -71,12 +71,22 @@ Host:
 
 | Field | Description |
 |---|---|
-| `terminal` | The client's terminal. The host uses `name` for `TERM` when the client opens a terminal, unless the request names `term` |
+| `terminal` | The client's terminal. The host uses `name` for `TERM` when the client opens a terminal, unless the request names `term`. `terminfo?` is its terminfo entry, in source form (`infocmp -x` output, at most 64 KiB), for hosts that lack it ([§3.1](#31-terminfo)) |
 | `features` (client) | What the client's terminal can draw or send |
 | `shells`, `exec` | Whether the host starts a login shell, or a command, on request |
 | `agent` | The agent access offered ([§5](#5-agent-access)): `screen`, `changes`, `act`, `images` (images on the screen and their data), `render` (screenshots of the terminal as drawn) |
 | `scrollback` | Lines of scrollback the host keeps per terminal, `0` for none |
 | `features` (host) | The features the host's emulator understands, so that agents see them on the screen too |
+
+
+### 3.1 Terminfo
+
+Programs look up `TERM` in the terminfo database, and a host often lacks the entry for a newer terminal (`xterm-kitty`, `xterm-ghostty`), so that full-screen programs fail.
+
+- A client SHOULD send its terminal's entry as `terminal.terminfo`, as `infocmp -x` prints it, when it has one.
+- When a terminal's `TERM` has no entry on the host and the client sent one, the host compiles it into a directory of its own for that terminal and sets `TERMINFO` there, never changing the host's own database. It MUST treat the source as untrusted input: size-limited, compiled by the system's compiler without a shell, and only the named entry used.
+- When it has neither, the host uses `xterm-256color` instead and says so: PTY_STATE `opened` carries `term`, the name it used. A client SHOULD tell the person when it differs from the one asked for.
+- A gateway passes the entry on where it can. `vroom-to-ssh` can't install it on the server, so it uses the fallback there unless the server has the entry.
 
 ---
 
@@ -89,7 +99,7 @@ On `vroom.terminal.control`. Requests carry `request_id`, and errors are Session
 | `0x01` | TERM_HELLO | Both | [§3](#3-handshake) |
 | `0x02` | PTY_LIST | Both | C→S: nothing. S→C: `ptys`, each `{id, title, rows, cols, command, running, exit?, session, window, source?, stream?}` |
 | `0x03` | PTY_OPEN | C→S | `shell?: true` or `command` and `args`, `cwd?`, `env?`, `term?`, `rows`, `cols`, `xpix?`, `ypix?`. Makes a new session with one window holding the terminal. Answered with PTY_STATE (with its `session` and `window`) |
-| `0x04` | PTY_STATE | S→C | `pty`, `state` (`opened`, `exited`, `closed`), `exit_code?`, `signal?`. Sent in answer and when a terminal's program exits |
+| `0x04` | PTY_STATE | S→C | `pty`, `state` (`opened`, `exited`, `closed`), `exit_code?`, `signal?`, and with `opened`, `term`: the `TERM` the program got ([§3.1](#31-terminfo)). Sent in answer and when a terminal's program exits |
 | `0x05` | PTY_CLOSE | C→S | `pty`: hangs the terminal up (SIGHUP) and removes it |
 | `0x06` | PTY_ATTACH | C→S | `pty`: the host opens `vroom.terminal.pty.<n>` ([§6](#6-the-byte-stream)) |
 | `0x07` | RESIZE | C→S | `pty`, `rows`, `cols`, `xpix?`, `ypix?`: the size of a terminal that is its window's only pane. A pane in a split window is refused with `4605`: its window is resized instead (WINDOW_RESIZE) |
@@ -221,6 +231,22 @@ On `vroom.terminal.pty.<n>`:
 - REDRAW also restores the modes the program set, so that the client's terminal sends what the program expects: application cursor and keypad modes, bracketed paste, the Kitty keyboard flags in force, mouse reporting modes, focus reporting, the alternate screen, the scroll region, the cursor's shape and visibility, and the title. A host keeps the image data placements need for as long as they're on the screen or in scrollback.
 - Graphics a client's terminal can't show (a Kitty image to a terminal without Kitty graphics, say, from its TERM_HELLO) are still passed through: the program asked for them, and a host doesn't rewrite output. A program should check what the terminal supports, as it would locally.
 - INPUT needs an `input` lease on the terminal or its session. Without it the host drops the input and reports `4600` on the session, at most once a second.
+
+### 6.1 Answering queries
+
+Programs ask the terminal they run in about itself and wait for the answer: device attributes (DA1, DA2, DA3), XTVERSION, DECRQM, the cursor position (CPR), the Kitty keyboard flags (`CSI ? u`), Kitty graphics (`a=q`), colours (OSC 4, 10, 11, 12), sizes (`CSI 14 t`, `16 t`, `18 t`), XTGETTCAP and DECRQSS. Exactly one party answers each, so that a program never sees two answers, which would arrive as keystrokes.
+
+- **A person's terminal.** When a client holding `size` on the terminal or its session ([§7.3](#73-leases)) is attached, its terminal answers, through INPUT, and the host's emulator stays silent. The program sees the real terminal it's drawn on.
+- **Others' answers.** Other attached clients' answers are dropped. A host can't tell an answer from typing in general, so it drops what arrives from them while a query it passed on is unanswered, for at most a second, and a client SHOULD NOT send its terminal's answers to queries when it doesn't hold `size`.
+- **No one there.** With no such client attached, the host's emulator answers, as a terminal would: at least DA1, CPR, DECRQM, the Kitty keyboard flags, the colours and the sizes, so that a program waiting for them doesn't stall. It SHOULD describe the terminal last attached, where it knows it, rather than itself.
+- **Changing hands.** The answerer changes when the `size` holder attaches, detaches or loses the lease. A query asked just before keeps its answerer.
+- The pane interface's query ([§7.6.1](#761-finding-the-host)) is the one the host always answers itself.
+
+### 6.2 What doesn't cross
+
+- **Kitty graphics by file or shared memory.** The path names the program's machine, and the client's terminal would read its own. A program sends images to a remote terminal directly (`t=d`), as over SSH. The host refuses the other media for its own screen.
+- **REDRAW** restores what the screen shows and the modes in force, the title and cursor shape included. It doesn't change the client's palette unless the program did, and Sixel images and OSC 66 sized text are drawn again only where the host keeps them.
+
 - OUTPUT that a slow client can't take is not dropped: xumux flow control holds the program back. A host MAY instead close a channel that stays full, so that one slow viewer cannot stall the program for everyone.
 
 ---
