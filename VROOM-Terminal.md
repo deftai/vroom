@@ -139,6 +139,7 @@ On `vroom.terminal.control`. Requests carry `request_id`, and errors are Session
 | `0x2A` | WINDOW_RESIZE | C→S | `window`, `rows`, `cols`, `xpix?`, `ypix?`: the whole window, its panes taking their shares of it |
 | `0x2B` | PRIVATE | C→S | `pty` or `session`, `on`: whether it's private, so that agents may neither read nor type in it ([§8.1](#81-private-terminals)). Answered with MUX_STATE |
 | `0x30`–`0x32` | LISTEN, LISTEN_STATE, UNLISTEN | | Port forwarding in ([§11.2](#112-listening)) |
+| `0x33` | RUN_SIGNAL | C→S | `run`, `signal`: a signal for a program without a terminal ([§6.3](#63-programs-without-a-terminal)) |
 
 Closing, resizing, signalling, input, actions and arranging need a lease of the kind [§7.3](#73-leases) names, on the terminal or its session ([Session §4](./VROOM-Session.md#4-the-control-lease)). PTY_OPEN and SESSION_NEW need none, as they make a session of their own and change no one else's, and give the opener no lease. Watching (PTY_LIST, PTY_ATTACH, SCREEN_REQ, CHANGES_REQ) needs none. A terminal whose program has exited stays listed, with its last screen, until PTY_CLOSE.
 
@@ -272,7 +273,7 @@ Programs ask the terminal they run in about itself and wait for the answer: devi
 
 Some programs speak a protocol over their standard input and output, and a terminal would garble it: `rsync` and `git` over SSH, `scp` in its old mode, and any filter a client pipes data through. These run without a terminal, on a channel of their own, as SSH's `exec` does without `pty-req`.
 
-- **Opening.** The client opens `vroom.terminal.run`, reliable and ordered, with the profile `vroom-terminal/1` and, in its metadata, either `command` (a command line, which the host runs with its user's shell as `sh -c` would, as sshd does) or `argv` (a program and its arguments, run without a shell), and `env?` and `cwd?` as in PTY_OPEN. The host starts the program before acknowledging. It rejects the channel with `4010` if it doesn't offer `run`, or its configuration doesn't allow the program, and with `4500` if the program can't be started.
+- **Opening.** The client opens `vroom.terminal.run`, reliable and ordered, with the profile `vroom-terminal/1` and, in its metadata, either `command` (a command line, which the host runs with its user's shell as `sh -c` would, as sshd does) or `argv` (a program and its arguments, run without a shell), `env?` and `cwd?` as in PTY_OPEN, and `run`, an ID of the client's choosing, unique among its open programs, for signalling it. The host starts the program before acknowledging. It rejects the channel with `4010` if it doesn't offer `run`, or its configuration doesn't allow the program, and with `4500` if the program can't be started.
 - **Messages,** in this channel's own type space:
 
 | Type | Name | Dir | Body |
@@ -281,12 +282,12 @@ Some programs speak a protocol over their standard input and output, and a termi
 | `0x02` | STDOUT | S→C | Bytes the program wrote to its standard output |
 | `0x03` | STDERR | S→C | Bytes the program wrote to its standard error |
 | `0x04` | CLOSE_STDIN | C→S | Empty: the client sends no more input, and the host closes the program's standard input once it has written what came before |
-| `0x05` | SIGNAL | C→S | `signal`, by name as in [§4](#4-messages) |
-| `0x06` | EXIT | S→C | `exit_code?`, `signal?`: the program has ended. The last message: sent after all of its STDOUT and STDERR |
+| `0x05` | EXIT | S→C | `exit_code?`, `signal?`: the program has ended. The last message: sent after all of its STDOUT and STDERR |
 
+- **Signals** go on `vroom.terminal.control`, apart from the program's input, so that a program that has stopped reading can still be stopped or continued: RUN_SIGNAL (`0x33`, C→S) with `request_id`, `run` and `signal` by name as in [§4](#4-messages), answered with an empty reply or `4602` if no such program runs.
 - **Bytes.** Message boundaries carry no meaning. Flow control is xumux's ([Session §1](./VROOM-Session.md#1-on-xumux)): the host returns credit for STDIN only once it is written to the program, and a slow client holds the program back rather than the host buffering without bound.
-- **Ending.** The host closes the channel after EXIT. A client that closes the channel first ends the program: the host sends it `SIGHUP`, then `SIGKILL` if it hasn't ended a few seconds later. A program outlives no connection: unlike a terminal, it has no screen to come back to.
-- **Who may.** A program run this way is as powerful as a terminal's, so a host offers `run` only where it offers `exec` ([§3](#3-handshake)), and MAY limit it to the programs its configuration names, matched exactly by name, never by a pattern over the command line. It needs no lease, as PTY_OPEN needs none, and isn't a surface.
+- **Ending.** The host closes the channel after EXIT. A client that closes the channel first ends the program: the host sends it `SIGHUP`, then `SIGKILL` if it hasn't ended a few seconds later. A program doesn't outlive its connection: unlike a terminal, it has no screen to come back to. A gateway to SSH can only ask: see [§12.2](#122-vroom-to-ssh).
+- **Who may.** A program run this way is as powerful as a terminal's, so a host offers `run` only where it offers `exec` ([§3](#3-handshake)), and MAY limit it to the programs its configuration names. A host that limits them MUST refuse `command` with `4010`, since a shell command line can run anything (`a; b`, `$(b)`), and accept only an `argv` whose program it names, matched exactly, never by a pattern. It needs no lease, as PTY_OPEN needs none, and isn't a surface.
 - **Audit.** ACTIVITY ([Session §8](./VROOM-Session.md#8-audit)) records each program started, by its name, and its exit, never its input or output.
 
 ---
@@ -633,7 +634,7 @@ A VROOM host whose terminals run on an SSH server: VROOM clients and agents reac
 | RESIZE, WINDOW_RESIZE | `window-change` for each terminal whose size changes |
 | SIGNAL | `signal`, by RFC 4254's names. SSH has no reply to it and many servers ignore it, so the gateway reports success once sent. `TSTP`, `CONT` and `WINCH` have no RFC 4254 name, and the gateway refuses them with `4605` |
 | PTY_CLOSE | Closing the SSH channel |
-| `vroom.terminal.run` | A `session` channel with `exec` and no `pty-req`, the command quoted for the server's shell as for PTY_OPEN. STDOUT and STDERR come from its data and extended data, and EXIT from `exit-status` or `exit-signal` |
+| `vroom.terminal.run` | A `session` channel with `exec` and no `pty-req`: `command` passed as it is, shell syntax for the server's shell, and `argv` with each element quoted for it. STDOUT and STDERR come from its data and extended data, EXIT from `exit-status` or `exit-signal`, and RUN_SIGNAL becomes `signal` |
 | `vroom.terminal.sftp` | The `sftp` subsystem on a `session` channel |
 | `vroom.terminal.tcp` | `direct-tcpip` |
 | LISTEN, UNLISTEN, `vroom.terminal.accept` | `tcpip-forward`, `cancel-tcpip-forward`, and each `forwarded-tcpip` channel |
@@ -642,6 +643,7 @@ A VROOM host whose terminals run on an SSH server: VROOM clients and agents reac
 - The gateway's allow-lists for `connect` and `listen` apply before the SSH server's own, so a client reaches only what both permit.
 - Files and forwarding then act on the SSH server, not the gateway's machine: `connect` targets are resolved and reached by the server, and `listen` addresses, `loopback` included, are the server's. The gateway's allow-lists name what the server may reach and where it may listen.
 - SFTP bytes pass through to the server's `sftp` subsystem, so the server's own permissions confine them, not [§10](#10-file-transfer)'s directories, and the gateway can't record each operation: it records the channel's opening and closing. A gateway SHOULD offer files this way only when configured to, apart from offering its own.
+- A program without a terminal ends with its connection only as far as the SSH server lets it: the gateway sends `signal` and closes the SSH channel, but a server may ignore the one and, with no terminal, a program may outlive the other. The gateway SHOULD say so where it offers `run`.
 - The gateway MUST refuse every channel the SSH server opens that it didn't ask for, accepting only `forwarded-tcpip` for a listener it asked for: a server could otherwise open sessions, agent or X11 channels into the gateway.
 - Terminals outlive the VROOM connection as on any host, for as long as the gateway keeps their SSH channels open. If the SSH connection drops, its terminals exit, and PTY_STATE says so, with `exit_code` `255`, as OpenSSH's client reports a lost connection. Connecting to the server, which can take long, MUST NOT hold up the host's other terminals.
 
