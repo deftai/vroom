@@ -71,7 +71,7 @@ Host:
 
 | Field | Description |
 |---|---|
-| `terminal` | The client's terminal. The host uses `name` for `TERM` when the client opens a terminal, unless the request names `term`. `terminfo?` is its terminfo entry, in source form (`infocmp -x` output, at most 64 KiB), for hosts that lack it ([§3.1](#31-terminfo)) |
+| `terminal` | The client's terminal. The host uses `name` for `TERM` when the client opens a terminal, unless the request names `term`. `version?` is its version, for XTVERSION answers ([§6.1](#61-answering-queries)). `terminfo?` is its terminfo entry, in source form (`infocmp -x` output, at most 64 KiB), for hosts that lack it ([§3.1](#31-terminfo)) |
 | `features` (client) | What the client's terminal can draw or send |
 | `shells`, `exec` | Whether the host starts a login shell, or a command, on request |
 | `agent` | The agent access offered ([§5](#5-agent-access)): `screen`, `changes`, `act`, `images` (images on the screen and their data), `render` (screenshots of the terminal as drawn) |
@@ -236,10 +236,10 @@ On `vroom.terminal.pty.<n>`:
 
 Programs ask the terminal they run in about itself and wait for the answer: device attributes (DA1, DA2, DA3), XTVERSION, DECRQM, the cursor position (CPR), the Kitty keyboard flags (`CSI ? u`), Kitty graphics (`a=q`), colours (OSC 4, 10, 11, 12), sizes (`CSI 14 t`, `16 t`, `18 t`), XTGETTCAP and DECRQSS. Exactly one party answers each, so that a program never sees two answers, which would arrive as keystrokes.
 
-- **A person's terminal.** When a client holding `size` on the terminal or its session ([§7.3](#73-leases)) is attached, its terminal answers, through INPUT, and the host's emulator stays silent. The program sees the real terminal it's drawn on.
-- **Others' answers.** Other attached clients' answers are dropped. A host can't tell an answer from typing in general, so it drops what arrives from them while a query it passed on is unanswered, for at most a second, and a client SHOULD NOT send its terminal's answers to queries when it doesn't hold `size`.
-- **No one there.** With no such client attached, the host's emulator answers, as a terminal would: at least DA1, CPR, DECRQM, the Kitty keyboard flags, the colours and the sizes, so that a program waiting for them doesn't stall. It SHOULD describe the terminal last attached, where it knows it, rather than itself.
-- **Changing hands.** The answerer changes when the `size` holder attaches, detaches or loses the lease. A query asked just before keeps its answerer.
+- **A person's terminal.** When a client holding `size` and `input` on the terminal or its session ([§7.3](#73-leases)) is attached, its terminal answers, through INPUT, which needs `input`, and the host's emulator stays silent. With no such client, the most recently attached client holding `input` answers. The program sees the real terminal it's drawn on.
+- **Others' answers.** Other attached clients' answers are dropped. A host can't tell an answer from typing in general, so while a query it passed on is unanswered it lets only the answerer's input through, for at most a second and a short grace after the answer. Others' typing in that window is lost: a bounded cost, paid only while a program is asking, so that it never sees two answers.
+- **No one there.** With no such client attached, the host's emulator answers, as a terminal would: at least DA1, CPR, DECRQM, the Kitty keyboard flags, the colours and the sizes, so that a program waiting for them doesn't stall. It SHOULD describe the terminal last attached, where it knows it (TERM_HELLO `terminal.name` and `version`, for XTVERSION), rather than itself.
+- **Changing hands.** The answerer changes when a holder attaches, detaches or loses the lease. A query asked just before keeps its answerer, and if that answerer leaves before answering, the host's emulator answers it.
 - The pane interface's query ([§7.6.1](#761-finding-the-host)) is the one the host always answers itself.
 
 ### 6.2 What doesn't cross
