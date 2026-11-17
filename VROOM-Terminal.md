@@ -228,7 +228,7 @@ On `vroom.terminal.pty.<n>`:
 | `0x04` | EXITED | S→C | `exit_code?`, `signal?`: the program has exited, and no more OUTPUT follows on this channel. A host that doesn't send it is of an earlier draft |
 
 - The host MUST pass output through unchanged, in order, including sequences its emulator doesn't understand. The one exception is the pane interface's own query and start request, which are addressed to the host ([§7.6.1](#761-finding-the-host)).
-- When the program exits, the host sends EXITED on each attached channel after the program's last OUTPUT. PTY_STATE `exited` on the control channel isn't ordered with the terminal's bytes, so a client that needs all of the output, such as a gateway, waits for EXITED.
+- When the program exits, the host sends EXITED on each attached channel after the program's last OUTPUT. PTY_STATE `exited` on the control channel isn't ordered with the terminal's bytes, so a client that needs all of the output, such as a gateway, waits for EXITED. A client that attaches after the program exited gets REDRAW, then EXITED at once, so that it never waits for an exit it missed.
 - On attaching, the host sends REDRAW, then OUTPUT from that point. A client that reconnects to a running terminal sees its screen at once: its text, styles and sized text, and its images, transmitted and placed again.
 - REDRAW also restores the modes the program set, so that the client's terminal sends what the program expects: application cursor and keypad modes, bracketed paste, the Kitty keyboard flags in force, mouse reporting modes, focus reporting, the alternate screen, the scroll region, the cursor's shape and visibility, and the title. A host keeps the image data placements need for as long as they're on the screen or in scrollback.
 - Graphics a client's terminal can't show (a Kitty image to a terminal without Kitty graphics, say, from its TERM_HELLO) are still passed through: the program asked for them, and a host doesn't rewrite output. A program should check what the terminal supports, as it would locally.
@@ -490,7 +490,7 @@ A client transfers files with SFTP, carried unchanged, so existing SFTP clients 
 - Files are read and written as the host's user. A host SHOULD confine each channel to the directories it was configured for, resolving every path, symbolic links included, before checking it, and SHOULD answer a path outside them with SSH_FX_PERMISSION_DENIED. Resolving and opening SHOULD be one step, walking a path a component at a time from the directories without following links, so that a link swapped in between can't escape them. A hard link to a file outside, made by other means, can't be told apart from the file, so the directories SHOULD hold only what clients may reach.
 - A client MAY open several SFTP channels at once, each with its own SFTP session. Each ends when either side closes its pipe, and all end with the connection.
 - File transfer needs no lease: files aren't surfaces. A host offers it by configuration, and MAY offer it only to the clients its configuration names, by the credentials they connected with (xumux `auth`); it rejects others' channels with `4010`.
-- **People and agents.** A host SHOULD let its configuration offer file transfer to people only (`client.kind` `human`), and SHOULD make that its default, since an agent that can read files can read secrets a person would keep from it on screen. It decides by a kind bound to the client's credentials ([Session §2.1](./VROOM-Session.md#21-session_hello-and-session_welcome)), and holds a channel that opens before SESSION_HELLO until the kind is known, or rejects it with `4010`.
+- **People and agents.** A host SHOULD let its configuration offer file transfer to people only (`client.kind` `human`), and SHOULD make that its default, since an agent that can read files can read secrets a person would keep from it on screen. It decides by a kind bound to the client's credentials ([Session §2.1](./VROOM-Session.md#21-session_hello-and-session_welcome)). The channel opens after SESSION_WELCOME ([Session §1.1](./VROOM-Session.md#11-channels-and-encoding)), so the kind is known when it does.
 - The host MUST emit ACTIVITY ([Session §8](./VROOM-Session.md#8-audit)) when an SFTP channel opens and closes, and SHOULD emit it for each operation that changes a file (opening one for writing, removing, renaming, setting attributes, making or removing a directory or link), naming the operation and the path, never the data. One record for opening a file to write is enough; a record for each SSH_FXP_WRITE would flood the log.
 
 ---
@@ -532,11 +532,11 @@ Gateways put VROOM and SSH on either side of each other, so that tools of one re
 
 ### 12.1 `ssh-to-vroom`
 
-An SSH server in front of a VROOM host: SSH clients, `sftp`, `scp`, `rsync` over SFTP, and `ssh -L` and `-R` reach the host's terminals, files and network.
+An SSH server in front of a VROOM host: SSH clients, `sftp` and `scp` (which use SFTP), and `ssh -L` and `-R` reach the host's terminals, files and network.
 
 | SSH | VROOM |
 |---|---|
-| `session` channel with `pty-req`, then `shell` or `exec` | PTY_OPEN with `shell`, or for `exec` the user's shell as `command` with `args` `["-c", <the command line>]`, as sshd runs it; `term`, `rows`, `cols`, `xpix` and `ypix` from `pty-req`; then PTY_ATTACH. Channel data is INPUT and OUTPUT |
+| `session` channel with `pty-req`, then `shell` or `exec` | PTY_OPEN with `shell`, or for `exec` the user's shell as `command` with `args` `["-c", <the command line>]`, as sshd runs it; `term`, `rows`, `cols`, `xpix` and `ypix` from `pty-req`; then PTY_ATTACH. The SSH channel gets REDRAW first, then OUTPUT, so that what the program printed before the attach (a prompt) isn't lost; channel data from the client is INPUT |
 | `env` | PTY_OPEN `env`, limited to the variables the gateway is configured to pass |
 | `window-change` | RESIZE, or WINDOW_RESIZE where the terminal shares its window |
 | `signal` | SIGNAL |
