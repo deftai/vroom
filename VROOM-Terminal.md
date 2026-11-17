@@ -260,6 +260,7 @@ Programs ask the terminal they run in about itself and wait for the answer: devi
 - **No one there.** With no such client attached, the host's emulator answers, as a terminal would: at least DA1, CPR, DECRQM, the Kitty keyboard flags, the colours and the sizes, so that a program waiting for them doesn't stall. It SHOULD describe the terminal last attached, where it knows it (TERM_HELLO `terminal.name` and `version`, for XTVERSION), rather than itself.
 - **Changing hands.** The answerer changes when a holder attaches, detaches or loses the lease. A query asked just before keeps its answerer, and if that answerer leaves before answering, the host's emulator answers it.
 - The pane interface's query ([§7.6.1](#761-finding-the-host)) is the one the host always answers itself.
+- **A client drawing several panes.** A client that draws a session's panes in one terminal of its own, by emulating each pane, answers for each pane as that pane: its emulator gives what the pane alone knows (its size in cells, its cursor, its modes), and the client's own terminal what the pane shares with it (the colours, the cell size in pixels, the terminal's name and version), learned once when the client starts. The client's own terminal never answers a pane's query directly, since it would describe the whole terminal, not the pane.
 
 ### 6.2 What doesn't cross
 
