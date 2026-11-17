@@ -489,14 +489,15 @@ A client transfers files with SFTP, carried unchanged, so existing SFTP clients 
 - A host MAY offer the SFTP extensions it supports, announced in SSH_FXP_VERSION as SFTP says, such as `posix-rename@openssh.com`. A client MUST NOT depend on one the host didn't announce.
 - Files are read and written as the host's user. A host SHOULD confine each channel to the directories it was configured for, resolving every path, symbolic links included, before checking it, and SHOULD answer a path outside them with SSH_FX_PERMISSION_DENIED. Resolving and opening SHOULD be one step, walking a path a component at a time from the directories without following links, so that a link swapped in between can't escape them. A hard link to a file outside, made by other means, can't be told apart from the file, so the directories SHOULD hold only what clients may reach.
 - A client MAY open several SFTP channels at once, each with its own SFTP session. Each ends when either side closes its pipe, and all end with the connection.
-- File transfer needs no lease: files aren't surfaces. A host MAY offer it only to the clients its configuration names, by the credentials they connected with (xumux `auth`), since the channel may open before SESSION_HELLO; it rejects others' channels with `4010`.
+- File transfer needs no lease: files aren't surfaces. A host offers it by configuration, and MAY offer it only to the clients its configuration names, by the credentials they connected with (xumux `auth`); it rejects others' channels with `4010`.
+- **People and agents.** A host SHOULD let its configuration offer file transfer to people only (`client.kind` `human`), and SHOULD make that its default, since an agent that can read files can read the secrets a private terminal ([§8.1](#81-private-terminals)) hides. It decides by a kind bound to the client's credentials ([Session §2.1](./VROOM-Session.md#21-session_hello-and-session_welcome)), and holds a channel that opens before SESSION_HELLO until the kind is known, or rejects it with `4010`.
 - The host MUST emit ACTIVITY ([Session §8](./VROOM-Session.md#8-audit)) when an SFTP channel opens and closes, and SHOULD emit it for each operation that changes a file (opening one for writing, removing, renaming, setting attributes, making or removing a directory or link), naming the operation and the path, never the data. One record for opening a file to write is enough; a record for each SSH_FXP_WRITE would flood the log.
 
 ---
 
 ## 11. Port forwarding
 
-Both directions of SSH's TCP forwarding, as `pipe/1` channels ([xumux Pipe](https://xumux.org)). Forwarding needs no lease: a host offers it only as configured (TERM_HELLO `forward`, [§3](#3-handshake)), and MAY offer it only to the clients its configuration names, by the credentials they connected with.
+Both directions of SSH's TCP forwarding, as `pipe/1` channels ([xumux Pipe](https://xumux.org)). Forwarding needs no lease: a host offers it only as configured (TERM_HELLO `forward`, [§3](#3-handshake)), and MAY offer it only to the clients its configuration names, by the credentials they connected with. As with files, a host SHOULD let its configuration offer forwarding to people only, and SHOULD make that its default: forwarding lends a client the host's network position.
 
 ### 11.1 Connecting out
 

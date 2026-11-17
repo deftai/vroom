@@ -64,7 +64,7 @@ Structured messages use CBOR by default and JSON where negotiated. SESSION_HELLO
 }
 ```
 
-`client.kind` is `"human"` or `"agent"`. The host uses it for lease policy and audit, not for trust.
+`client.kind` is `"human"` or `"agent"`. The host uses it for lease policy and audit, not for trust. A host that uses it for access as well, for what only people may do (such as making a private terminal public, or files and forwarding), SHOULD bind it to the credentials: a client whose credentials its configuration gives an agent's kind is refused with `4603` if it claims `"human"`. Without that binding, a client's claim to be a person is only its word.
 
 ```json
 {
