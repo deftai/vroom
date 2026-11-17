@@ -148,6 +148,7 @@ The host answers with LEASE (`0x14`): `request_id`, `lease_id`, `surfaces`, `kin
 | `act` | Actions through the surface's own model rather than as input: tree actions, navigation, dialogs, files, the clipboard |
 | `arrange` | What a surface holds and how: opening, closing, moving and focusing what's in it, its layout, and names |
 | `size` | The surface's size |
+| `read` | Reading a surface a person has made private, such as a terminal ([Terminal §8.1](./VROOM-Terminal.md#81-private-terminals)). Reading needs no lease anywhere else, and a `read` lease of agent rank on a private surface is refused |
 
 Each type says which kind each of its operations needs. A kind a type has no operations for covers nothing there. Leases of different kinds never conflict, so one client can type into a terminal while another rearranges the session it is in.
 
