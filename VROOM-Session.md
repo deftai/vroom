@@ -64,7 +64,7 @@ Structured messages use CBOR by default and JSON where negotiated. SESSION_HELLO
 }
 ```
 
-`client.kind` is `"human"` or `"agent"`. The host uses it for lease policy and audit, not for trust.
+`client.kind` is `"human"` or `"agent"`. The host uses it for lease policy and audit, not for trust. A host that uses it for access as well, for what only people may do (such as making a private terminal public, or files and forwarding), SHOULD bind it to the credentials: a client whose credentials its configuration gives an agent's kind is refused with `4603` if it claims `"human"`. Without that binding, a client's claim to be a person is only its word.
 
 ```json
 {
@@ -148,6 +148,7 @@ The host answers with LEASE (`0x14`): `request_id`, `lease_id`, `surfaces`, `kin
 | `act` | Actions through the surface's own model rather than as input: tree actions, navigation, dialogs, files, the clipboard |
 | `arrange` | What a surface holds and how: opening, closing, moving and focusing what's in it, its layout, and names |
 | `size` | The surface's size |
+| `read` | Reading a surface a person has made private, such as a terminal ([Terminal §8.1](./VROOM-Terminal.md#81-private-terminals)), granted by a person to those they let in. Reading needs no lease anywhere else, and a `read` lease of agent rank on a private surface is refused |
 
 Each type says which kind each of its operations needs. A kind a type has no operations for covers nothing there. Leases of different kinds never conflict, so one client can type into a terminal while another rearranges the session it is in.
 
@@ -301,7 +302,7 @@ Every action in every type returns this shape, so that an agent always learns wh
 
 ## 8. Audit
 
-A host MUST emit ACTIVITY for every action it performs: time, client, surface, action, target, result, and the lease it was taken under. For a client that joined the lease, ACTIVITY names both that client and the lease's owner. It SHOULD also keep a local log. Text typed into a field the host knows is secret MUST be redacted.
+A host MUST emit ACTIVITY for every action it performs: time, client, surface, action, target, result, and the lease it was taken under. An action on no surface, such as a file transfer or a forwarded connection in Terminal, has no `surface` and no lease. For a client that joined the lease, ACTIVITY names both that client and the lease's owner. It SHOULD also keep a local log. Text typed into a field the host knows is secret MUST be redacted.
 
 ---
 

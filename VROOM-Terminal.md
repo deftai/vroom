@@ -4,7 +4,7 @@
 
 *Terminals for humans and agents: a PTY's bytes for people, its screen for agents.*
 
-Version: 0.3.0-draft | Status: Draft | Date: 2026-11-13 | Base: [VROOM-Session](./VROOM-Session.md)
+Version: 0.3.0-draft | Status: Draft | Date: 2026-11-16 | Base: [VROOM-Session](./VROOM-Session.md)
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used as described in RFC 2119.
 
@@ -29,7 +29,9 @@ All four types can run over the same xumux connection, with one session and one 
 - Multiplexing as tmux and its successors do it: sessions of windows of panes, one arrangement shared by every viewer, detached and attached at will. A host may also serve the panes of a multiplexer already running ([§7.5](#75-bridged-multiplexers)).
 - Programs that lay out panes of their own: a program can find out whether its host offers panes, open and arrange them, hear which is focused, and read and write each one, locally or over SSH ([§7.6](#76-programs-that-own-panes)). Panes may be browser tabs, displays and other hosts' surfaces as well as terminals ([§7.7](#77-panes-of-other-types)).
 
-Not goals: file transfer and port forwarding ([§10](#10-later)), and replacing SSH's user and host authentication.
+- Files and ports as SSH offers them: SFTP, unchanged, on a channel of its own ([§10](#10-file-transfer)), forwarding out and in ([§11](#11-port-forwarding)), and gateways to and from SSH ([§12](#12-gateways)).
+
+Not goal: replacing SSH's user and host authentication.
 
 ---
 
@@ -39,6 +41,9 @@ Not goals: file transfer and port forwarding ([§10](#10-later)), and replacing 
 |---|---|---|
 | `vroom.terminal.control` | Reliable, ordered | Everything in [§4](#4-messages) |
 | `vroom.terminal.pty.<n>` | Reliable, ordered | The terminal's bytes: output to the client, input to the program ([§6](#6-the-byte-stream)) |
+| `vroom.terminal.sftp` | Reliable, ordered, `pipe/1` | SFTP, opened by the client ([§10](#10-file-transfer)) |
+| `vroom.terminal.tcp` | Reliable, ordered, `pipe/1` | A connection the host makes for the client ([§11.1](#111-connecting-out)) |
+| `vroom.terminal.accept` | Reliable, ordered, `pipe/1` | A connection the host accepted for the client, opened by the host ([§11.2](#112-listening)) |
 
 The client opens `vroom.terminal.control`. The host opens `vroom.terminal.pty.<n>` when a client asks for a terminal's bytes (PTY_ATTACH), and a client may attach to several terminals at once.
 
@@ -65,6 +70,8 @@ Host:
   "exec": true,
   "agent": ["screen", "changes", "act", "images", "render"],
   "scrollback": 10000,
+  "files": true,
+  "forward": ["connect", "listen"],
   "features": ["kitty_keyboard", "kitty_graphics", "bracketed_paste", "osc52_clipboard"]
 }
 ```
@@ -76,6 +83,8 @@ Host:
 | `shells`, `exec` | Whether the host starts a login shell, or a command, on request |
 | `agent` | The agent access offered ([§5](#5-agent-access)): `screen`, `changes`, `act`, `images` (images on the screen and their data), `render` (screenshots of the terminal as drawn) |
 | `scrollback` | Lines of scrollback the host keeps per terminal, `0` for none |
+| `files` | Whether the host offers file transfer ([§10](#10-file-transfer)). Absent means `false` |
+| `forward` | The port forwarding the host offers ([§11](#11-port-forwarding)): `connect`, `listen`, both or neither. Absent means neither |
 | `features` (host) | The features the host's emulator understands, so that agents see them on the screen too |
 
 
@@ -99,7 +108,7 @@ On `vroom.terminal.control`. Requests carry `request_id`, and errors are Session
 |---|---|---|---|
 | `0x01` | TERM_HELLO | Both | [§3](#3-handshake) |
 | `0x02` | PTY_LIST | Both | C→S: nothing. S→C: `ptys`, each `{id, title, rows, cols, command, running, exit?, session, window, source?, stream?}` |
-| `0x03` | PTY_OPEN | C→S | `shell?: true` or `command` and `args`, `cwd?`, `env?`, `term?`, `rows`, `cols`, `xpix?`, `ypix?`. Makes a new session with one window holding the terminal. Answered with PTY_STATE (with its `session` and `window`) |
+| `0x03` | PTY_OPEN | C→S | `shell?: true` or `command` and `args`, `cwd?`, `env?`, `term?`, `private?` ([§8.1](#81-private-terminals)), `rows`, `cols`, `xpix?`, `ypix?`. Makes a new session with one window holding the terminal. Answered with PTY_STATE (with its `session` and `window`) |
 | `0x04` | PTY_STATE | S→C | `pty`, `state` (`opened`, `exited`, `closed`), `exit_code?`, `signal?`, and with `opened`, `term`: the `TERM` the program got ([§3.1](#31-terminfo)). Sent in answer and when a terminal's program exits |
 | `0x05` | PTY_CLOSE | C→S | `pty`: hangs the terminal up (SIGHUP) and removes it |
 | `0x06` | PTY_ATTACH | C→S | `pty`: the host opens `vroom.terminal.pty.<n>` ([§6](#6-the-byte-stream)) |
@@ -126,6 +135,8 @@ On `vroom.terminal.control`. Requests carry `request_id`, and errors are Session
 | `0x28` | RENAME | C→S | `session`, `window` or `pty`, and `name` |
 | `0x29` | KILL | C→S | `session`, `window` or `pty`: closes it and everything in it |
 | `0x2A` | WINDOW_RESIZE | C→S | `window`, `rows`, `cols`, `xpix?`, `ypix?`: the whole window, its panes taking their shares of it |
+| `0x2B` | PRIVATE | C→S | `pty` or `session`, `on`: whether it's private, so that agents may neither read nor type in it ([§8.1](#81-private-terminals)). Answered with MUX_STATE |
+| `0x30`–`0x32` | LISTEN, LISTEN_STATE, UNLISTEN | | Port forwarding in ([§11.2](#112-listening)) |
 
 Closing, resizing, signalling, input, actions and arranging need a lease of the kind [§7.3](#73-leases) names, on the terminal or its session ([Session §4](./VROOM-Session.md#4-the-control-lease)). PTY_OPEN and SESSION_NEW need none, as they make a session of their own and change no one else's, and give the opener no lease. Watching (PTY_LIST, PTY_ATTACH, SCREEN_REQ, CHANGES_REQ) needs none. A terminal whose program has exited stays listed, with its last screen, until PTY_CLOSE.
 
@@ -226,9 +237,11 @@ On `vroom.terminal.pty.<n>`:
 | `0x01` | OUTPUT | S→C | Bytes the program wrote, as written |
 | `0x02` | INPUT | C→S | Bytes for the program, as the client's terminal produced them |
 | `0x03` | REDRAW | S→C | Bytes that draw the current screen from blank, images included, sent first on attaching |
+| `0x04` | EXITED | S→C | `exit_code?`, `signal?`: the program has exited, and no more OUTPUT follows on this channel. A host that doesn't send it is of an earlier draft |
 | `0x05` | ANSWERING | S→C | `on`: whether this client's terminal answers the program's queries ([§6.1](#61-answering-queries)). Sent on attaching and whenever it changes. A host that doesn't send it is of an earlier draft |
 
 - The host MUST pass output through unchanged, in order, including sequences its emulator doesn't understand. The one exception is the pane interface's own query and start request, which are addressed to the host ([§7.6.1](#761-finding-the-host)).
+- When the program exits, the host sends EXITED on each attached channel after the program's last OUTPUT. PTY_STATE `exited` on the control channel isn't ordered with the terminal's bytes, so a client that needs all of the output, such as a gateway, waits for EXITED. A client that attaches after the program exited gets REDRAW, then EXITED at once, so that it never waits for an exit it missed.
 - On attaching, the host sends REDRAW, then OUTPUT from that point. A client that reconnects to a running terminal sees its screen at once: its text, styles and sized text, and its images, transmitted and placed again.
 - REDRAW also restores the modes the program set, so that the client's terminal sends what the program expects: application cursor and keypad modes, bracketed paste, the Kitty keyboard flags in force, mouse reporting modes, focus reporting, the alternate screen, the scroll region, the cursor's shape and visibility, and the title. A host keeps the image data placements need for as long as they're on the screen or in scrollback.
 - Graphics a client's terminal can't show (a Kitty image to a terminal without Kitty graphics, say, from its TERM_HELLO) are still passed through: the program asked for them, and a host doesn't rewrite output. A program should check what the terminal supports, as it would locally.
@@ -480,7 +493,25 @@ A window's layout may hold surfaces of any VROOM type, not only terminals. A lea
 
 ## 8. Leases and people
 
-As in every type, a person outranks an agent ([Session §4](./VROOM-Session.md#4-the-control-lease)). A person typing into a terminal holds its `input` lease, and an agent's actions there fail with `4600` until they release it, unless both hold it shared ([Session §4.3](./VROOM-Session.md#43-conflicts-rank-and-sharing)). Watching is open to both: an agent may read the screen while a person types, and a person may watch an agent work.
+As in every type, a person outranks an agent ([Session §4](./VROOM-Session.md#4-the-control-lease)). A person typing into a terminal holds its `input` lease, and an agent's actions there fail with `4600` until they release it, unless both hold it shared ([Session §4.3](./VROOM-Session.md#43-conflicts-rank-and-sharing)). Watching is open to both: an agent may read the screen while a person types, and a person may watch an agent work, unless a person has made the terminal private ([§8.1](#81-private-terminals)), when agents may neither read nor type in it without a person's grant.
+
+### 8.1 Private terminals
+
+A terminal shows what its programs print, secrets included: a token a command prints, a key a file holds. A person can make a terminal private, so that agents keep their hands off it, neither reading nor typing, unless a person invites them.
+
+- **Making it private.** Only a client whose own `client.kind` is `human` sends PRIVATE with `on: true`, or opens a terminal with `private: true` (PTY_OPEN, and the first pane of SESSION_NEW, WINDOW_NEW and SPLIT). Anyone else's is refused with `4603`, a joiner acting with a person's rank included. It needs no lease, so that a person who sees a secret can hide it at once, even while an agent holds the terminal. Making a session private makes each of its panes private, those it gains later too.
+- **Making it public.** PRIVATE with `on: false` needs a client whose own `client.kind` is `human` and who holds `input` on the terminal or its session ([§7.3](#73-leases)): revealing is deliberate, by the person in control of it then, and one person can't quietly undo another's choice while the other still holds it. Others are refused with `4603`.
+- **What agents can't do.** On a private terminal, a client acting with agent rank can neither read nor give input.
+  - **Reading:** SCREEN_REQ, CHANGES_REQ, IMAGE_REQ, SCREENSHOT_REQ and PTY_ATTACH are refused. The host closes the agent's `vroom.terminal.pty.<n>` channels on it when it becomes private, sends it no screen text in act results ([Session §7](./VROOM-Session.md#7-the-act-result)), and doesn't wait for text on its behalf (ACT `wait`).
+  - **Input:** INPUT, SIGNAL and ACT are refused, whatever leases the agent holds, so that it can't type into a prompt it can't see.
+  - Each refusal is `4603`, with `detail.reason` `private`.
+  - In PTY_LIST and MUX_STATE, the agent sees the terminal with `private: true` and without its `title`, which a program sets and can carry text. Its other operations, arranging and sizing, need what they always do.
+- **Letting an agent in.** A person who holds a lease on a private terminal, or its session, can grant it ([Session §4.4](./VROOM-Session.md#44-grants)), narrowed to the panes it means and to `read` ([Session §4.2](./VROOM-Session.md#42-kinds)), `input`, or both. A client that joins by the grant reads, or types into, those panes with the person's rank, for as long as the lease lasts. That is the only way an agent reads or types into a private terminal: a `read` lease that an agent asks for itself, on a private terminal, is refused with `4603`, and its own `input` lease there doesn't let it type.
+- **Who is a person.** A host decides who is a person by `client.kind`, which a client declares ([Session §2.1](./VROOM-Session.md#21-session_hello-and-session_welcome)). A host that offers private terminals MUST bind the kind to the client's credentials, so that an agent can't claim to be a person to make a terminal public or to read it: a client whose credentials its configuration gives an agent's kind is refused with `4603` if it claims `human`. A host that can't bind them MUST NOT offer private terminals, since privacy would then keep out only agents that say what they are.
+- **Lasting.** A terminal stays private until a person makes it public again. It outlives the connection that made it private, as the terminal does.
+- **People.** Private doesn't stop people: a person's client reads and types in a private terminal as in any other, under the usual leases. A host SHOULD show that a terminal is private to the people who see it.
+- **Audit.** ACTIVITY ([Session §8](./VROOM-Session.md#8-audit)) records a terminal becoming private and public, and each read or input refused because it was.
+- **Other surfaces.** A `remote` pane ([§7.7](#77-panes-of-other-types)) made private is private here; the host it comes from has rules of its own. A program owning panes ([§7.6](#76-programs-that-own-panes)) reads and writes its own, private or not, as the person whose terminal it runs in would.
 
 ---
 
@@ -493,18 +524,112 @@ As in every type, a person outranks an agent ([Session §4](./VROOM-Session.md#4
 - The pane interface ([§7.6](#76-programs-that-own-panes)) gives a program only its own panes, and surfaces it shows under their leases. A host MUST offer only the pane kinds its configuration allows (browser tabs only where it serves Browsable, for example), refusing others with `4605`, and SHOULD refuse with `4603` a `display` or `remote` pane its policy doesn't permit for that program.
 - In band, the start request needs the host's one-time token ([§7.6.1](#761-finding-the-host)), so output alone, such as a printed file, can't start the pane interface.
 - A `remote` pane reaches only hosts the host is configured to reach, with its own credentials. A program can't supply credentials, nor learn them.
+- File transfer ([§10](#10-file-transfer)) and port forwarding ([§11](#11-port-forwarding)) lend a client the host's filesystem and its network position. A host MUST NOT offer either unless configured to, and the security rules of those sections apply.
 
 ---
 
-## 10. Later
+## 10. File transfer
 
-- File transfer and port forwarding, as further channels.
-- Gateways: `vroom-to-ssh` and `ssh-to-vroom`.
+A client transfers files with SFTP, carried unchanged, so existing SFTP clients and libraries work over VROOM and a gateway to SSH passes the bytes through ([§12](#12-gateways)).
+
+- The client opens a channel named `vroom.terminal.sftp`, reliable and ordered, with the xumux profile `pipe/1` ([xumux Pipe](https://xumux.org)) in place of a VROOM profile, and no `target`. A host that doesn't offer file transfer (TERM_HELLO `files`, [§3](#3-handshake)) rejects the channel with `4010`, and so does a host given a `target`.
+- The pipe's bytes are SFTP version 3 (draft-ietf-secsh-filexfer-02) exactly as an SSH `sftp` subsystem carries them: length-prefixed packets, starting with SSH_FXP_INIT. Message boundaries carry no meaning, as in any pipe. SSH_FXP_SYMLINK takes its two paths in the order OpenSSH sends them, the target first and the link second, which is the reverse of the draft's and what deployed clients expect.
+- A host MAY offer the SFTP extensions it supports, announced in SSH_FXP_VERSION as SFTP says, such as `posix-rename@openssh.com`. A client MUST NOT depend on one the host didn't announce.
+- Files are read and written as the host's user. A host SHOULD confine each channel to the directories it was configured for, resolving every path, symbolic links included, before checking it, and SHOULD answer a path outside them with SSH_FX_PERMISSION_DENIED. Resolving and opening SHOULD be one step, walking a path a component at a time from the directories without following links, so that a link swapped in between can't escape them. A hard link to a file outside, made by other means, can't be told apart from the file, so the directories SHOULD hold only what clients may reach.
+- A client MAY open several SFTP channels at once, each with its own SFTP session. Each ends when either side closes its pipe, and all end with the connection.
+- File transfer needs no lease: files aren't surfaces. A host offers it by configuration, and MAY offer it only to the clients its configuration names, by the credentials they connected with (xumux `auth`); it rejects others' channels with `4010`.
+- **People and agents.** A host SHOULD let its configuration offer file transfer to people only (`client.kind` `human`), and SHOULD make that its default, since an agent that can read files can read secrets a person would keep from it on screen. It decides by a kind bound to the client's credentials ([Session §2.1](./VROOM-Session.md#21-session_hello-and-session_welcome)). The channel opens after SESSION_WELCOME ([Session §1.1](./VROOM-Session.md#11-channels-and-encoding)), so the kind is known when it does.
+- The host MUST emit ACTIVITY ([Session §8](./VROOM-Session.md#8-audit)) when an SFTP channel opens and closes, and SHOULD emit it for each operation that changes a file (opening one for writing, removing, renaming, setting attributes, making or removing a directory or link), naming the operation and the path, never the data. One record for opening a file to write is enough; a record for each SSH_FXP_WRITE would flood the log.
+
+---
+
+## 11. Port forwarding
+
+Both directions of SSH's TCP forwarding, as `pipe/1` channels ([xumux Pipe](https://xumux.org)). Forwarding needs no lease: a host offers it only as configured (TERM_HELLO `forward`, [§3](#3-handshake)), and MAY offer it only to the clients its configuration names, by the credentials they connected with. As with files, a host SHOULD let its configuration offer forwarding to people only, and SHOULD make that its default: forwarding lends a client the host's network position.
+
+### 11.1 Connecting out
+
+As SSH's `-L` and `direct-tcpip`: the client asks the host to connect somewhere it can reach.
+
+- The client opens a channel named `vroom.terminal.tcp`, profile `pipe/1`, with a `target` of `tcp:host:port` and, where the host allows it, `unix:/path`. An IPv6 address is written in brackets, as `tcp:[::1]:22`, here and wherever these sections write an address.
+- The host connects before acknowledging, as `pipe/1` says: `4010` if the target isn't allowed, `4500` if it can't be reached, and `4011` at a resource limit. A host that doesn't offer `connect` rejects every such channel with `4010`.
+- The host MUST check every target against an allow-list, field by field, as `pipe/1`'s security considerations say, and SHOULD check the address a name resolves to where it must not reach certain networks. It MUST NOT accept `exec:` or listening targets here.
+
+### 11.2 Listening
+
+As SSH's `-R` and `tcpip-forward`: the host listens, and sends each connection it accepts back to the client. On `vroom.terminal.control`:
+
+| Type | Name | Dir | Body |
+|---|---|---|---|
+| `0x30` | LISTEN | C→S | `request_id`, `host?` (the address to listen on, loopback by default), `port` (`0` for one the host picks) |
+| `0x31` | LISTEN_STATE | S→C | `listen` (an ID), `state` (`listening` or `closed`), `host`, `port`, `reason?`. In answer to LISTEN and UNLISTEN, and when a listener fails |
+| `0x32` | UNLISTEN | C→S | `request_id`, `listen`: stop listening. Connections already accepted carry on. Answered once the host has stopped listening |
+
+- For each connection it accepts, the host opens a channel to the client named `vroom.terminal.accept`, profile `pipe/1`, with `listen` (the listener's ID) and `peer` (the connecting address, as `tcp:host:port`) in its metadata and no `target`. The client's own configuration decides where to connect it, as SSH's `-R` does, and the client answers as a `pipe/1` responder: `4500` if its end can't be reached, `4010` for a listener it doesn't know (one it has stopped, say), and `4011` at a limit of its own. A LISTEN_STATE `closed` the host sends unasked has no `request_id`: a client that has asked for a listener and not yet had its answer ties it to that request when the answer arrives.
+- A host MUST listen only where it was configured to allow, refusing other LISTENs with `4603`. It SHOULD allow loopback only by default, as OpenSSH's `GatewayPorts no` does: `127.0.0.1`, `::1`, and `localhost` only if it binds `localhost` to loopback addresses alone. It MUST NOT listen on a port it was asked for when the port is already in use, and refuses a LISTEN over its limit of listeners for a connection, with `4603` in both cases.
+- A listener belongs to the connection that asked for it, and ends with it. Unlike terminals, forwards don't outlive their connection.
+- The host MUST emit ACTIVITY when a listener opens and closes, and for each connection it accepts, naming the address and the peer.
+
+ACTIVITY for files and forwarding has no `surface`, as these act on none. A host SHOULD keep refusals in its local log too, including channels it rejects before they open, which ACTIVITY can't report.
+
+---
+
+## 12. Gateways
+
+Gateways put VROOM and SSH on either side of each other, so that tools of one reach hosts of the other. This section says how they map; a gateway is a separate program, configured on its own.
+
+### 12.1 `ssh-to-vroom`
+
+An SSH server in front of a VROOM host: SSH clients, `sftp` and `scp` (which use SFTP), and `ssh -L` and `-R` reach the host's terminals, files and network.
+
+| SSH | VROOM |
+|---|---|
+| `session` channel with `pty-req`, then `shell` or `exec` | PTY_OPEN with `shell`, or for `exec` the user's shell as `command` with `args` `["-c", <the command line>]`, as sshd runs it; `term`, `rows`, `cols`, `xpix` and `ypix` from `pty-req`; then PTY_ATTACH. The SSH channel gets REDRAW first, then OUTPUT, so that what the program printed before the attach (a prompt) isn't lost; channel data from the client is INPUT |
+| `env` | PTY_OPEN `env`, limited to the variables the gateway is configured to pass |
+| `window-change` | RESIZE, or WINDOW_RESIZE where the terminal shares its window |
+| `signal` | SIGNAL |
+| `exit-status`, `exit-signal` | EXITED on the terminal's channel ([§6](#6-the-byte-stream)), once its last OUTPUT is written, then PTY_CLOSE and the gateway closes the SSH channel |
+| `subsystem` `sftp` | A `vroom.terminal.sftp` channel, bytes passed through both ways ([§10](#10-file-transfer)) |
+| `direct-tcpip` | A `vroom.terminal.tcp` channel with the `target` it names ([§11.1](#111-connecting-out)) |
+| `tcpip-forward`, `cancel-tcpip-forward` | LISTEN and UNLISTEN. Each `vroom.terminal.accept` becomes a `forwarded-tcpip` channel ([§11.2](#112-listening)) |
+
+- The gateway authenticates SSH users by its own configuration, and connects to the VROOM host as a client with credentials it was configured with for that user. It MUST NOT pass a user's SSH credentials on, and the host's rules for that client, its rank among them, apply to everything the user does.
+- A terminal's INPUT, RESIZE and PTY_CLOSE need leases, and WINDOW_RESIZE one on its session ([§7.3](#73-leases)). PTY_OPEN makes a session of its own for each terminal, so the gateway takes `input`, `size` and `arrange` on that session, covering its terminal, and renews the lease while the SSH channel is open.
+- An `exec` without `pty-req` has no terminal in VROOM. A gateway refuses it, unless it is configured to run it in one, in which case the program's output passes through a terminal's line discipline: fine for most commands, not for binary protocols. `x11-req`, `auth-agent-req@openssh.com` and `streamlocal` forwarding are refused.
+
+### 12.2 `vroom-to-ssh`
+
+A VROOM host whose terminals run on an SSH server: VROOM clients and agents reach a machine that only offers SSH, with the screen, multiplexing and agent access ([§5](#5-agent-access)) provided by the gateway.
+
+| VROOM | SSH |
+|---|---|
+| PTY_OPEN, SESSION_NEW, WINDOW_NEW, SPLIT | A `session` channel with `pty-req`, `env`, and `shell` or `exec` for each terminal, the command and its arguments quoted for the server's shell. A `cwd` becomes `cd -- <cwd> && exec <command>`, as SSH has no working directory of its own. The gateway runs the emulator, and keeps the sessions, windows and layouts |
+| INPUT, OUTPUT | Channel data |
+| RESIZE, WINDOW_RESIZE | `window-change` for each terminal whose size changes |
+| SIGNAL | `signal`, by RFC 4254's names. SSH has no reply to it and many servers ignore it, so the gateway reports success once sent. `TSTP`, `CONT` and `WINCH` have no RFC 4254 name, and the gateway refuses them with `4605` |
+| PTY_CLOSE | Closing the SSH channel |
+| `vroom.terminal.sftp` | The `sftp` subsystem on a `session` channel |
+| `vroom.terminal.tcp` | `direct-tcpip` |
+| LISTEN, UNLISTEN, `vroom.terminal.accept` | `tcpip-forward`, `cancel-tcpip-forward`, and each `forwarded-tcpip` channel |
+
+- The gateway MUST verify the SSH server's host key against keys it was configured with or has recorded, and MUST NOT connect to one that doesn't match: a recorded key of another type is a mismatch, a key marked `@revoked` is refused, and an unknown host is refused unless the gateway was explicitly configured to record new keys, which never replaces a recorded one. It checks the key before it authenticates. It uses its own configured credentials; a VROOM client can't supply them, nor learn them, as with a `remote` pane ([§9](#9-security)).
+- The gateway's allow-lists for `connect` and `listen` apply before the SSH server's own, so a client reaches only what both permit.
+- Files and forwarding then act on the SSH server, not the gateway's machine: `connect` targets are resolved and reached by the server, and `listen` addresses, `loopback` included, are the server's. The gateway's allow-lists name what the server may reach and where it may listen.
+- SFTP bytes pass through to the server's `sftp` subsystem, so the server's own permissions confine them, not [§10](#10-file-transfer)'s directories, and the gateway can't record each operation: it records the channel's opening and closing. A gateway SHOULD offer files this way only when configured to, apart from offering its own.
+- The gateway MUST refuse every channel the SSH server opens that it didn't ask for, accepting only `forwarded-tcpip` for a listener it asked for: a server could otherwise open sessions, agent or X11 channels into the gateway.
+- Terminals outlive the VROOM connection as on any host, for as long as the gateway keeps their SSH channels open. If the SSH connection drops, its terminals exit, and PTY_STATE says so, with `exit_code` `255`, as OpenSSH's client reports a lost connection. Connecting to the server, which can take long, MUST NOT hold up the host's other terminals.
+
+---
+
+## 13. Later
+
 - Nesting: a child opening panes of its own, through a pane interface of its own.
+- Programs without a terminal (SSH's `exec` without `pty-req`), for protocols over a program's standard input and output, such as `rsync` and `git` over SSH.
+- Dynamic forwarding (SOCKS, SSH's `-D`), and listening on Unix sockets.
 
 ---
 
-## 11. Comparison (informative)
+## 14. Comparison (informative)
 
 | | VROOM-Terminal | OpenSSH | Mosh |
 |---|---|---|---|
@@ -515,12 +640,14 @@ As in every type, a person outranks an agent ([Session §4](./VROOM-Session.md#4
 | Several terminals on one connection | Yes | Yes (channels) | No |
 | Sessions, windows and panes | Yes (§7), and bridges to tmux and others | No (tmux alongside) | No |
 | With Graphical and Browsable | One connection and session | No | No |
+| File transfer | SFTP (§10) | SFTP | No |
+| Port forwarding | Out and in (§11) | Out, in and SOCKS | No |
 
 ---
 
 ## Status
 
-Draft. The agent access in §5, the multiplexing in §7 and the pane interface in §7.6 and §7.7 are new in 0.3.0 and expected to change as hosts implement them. The pane interface's local and in-band forms have been tried in a prototype on macOS and Linux.
+Draft. The agent access in §5, the multiplexing in §7, the pane interface in §7.6 and §7.7, and file transfer, port forwarding and gateways in §10–§12 are new in 0.3.0 and expected to change as hosts implement them. The pane interface's local and in-band forms have been tried in a prototype on macOS and Linux.
 
 ## License
 
