@@ -102,6 +102,8 @@ A **surface** is something that can be observed and acted on. Its ID is a string
 
 **Coordinates are logical and scoped to a surface**, with the origin at its top-left. A logical unit is a macOS point, a Windows DIP, a Wayland logical pixel or a CSS pixel. Every coordinate names its surface, so multiple monitors and HiDPI are never ambiguous.
 
+Graphical surfaces may separately report optional [desktop placement](./VROOM-Graphical.md#21-surface-placement) as `position`. That metadata does not change their surface-local coordinates.
+
 Every image a host returns reports how it maps to its surface: `origin` in logical units, and `scale` in image pixels per logical unit. A client computes `logical = origin + image_pixel / scale`. Clients MUST NOT assume an image is 1:1 with its surface.
 
 ---
