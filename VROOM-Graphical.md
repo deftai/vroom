@@ -205,6 +205,10 @@ Requires an `input` [lease](./VROOM-Session.md#4-the-control-lease) on the surfa
 
 Shapes travel reliably, on `vroom.graphical.control`: `0x10` CURSOR_SHAPE, CBOR `{shape, png, hot_x, hot_y, scale}`. Hosts send each shape once, and clients cache it by ID. Streams SHOULD exclude the cursor from captured frames, and viewers draw it.
 
+`hot_x` and `hot_y` are finite offsets from the PNG's top-left, in image pixels. The hotspot lies inside the image: `0 <= hot_x < width` and `0 <= hot_y < height`. `scale` is a finite, positive number of image pixels per logical unit, as in [Session §3](./VROOM-Session.md#3-surfaces-and-coordinates).
+
+For a CURSOR_POS whose logical position is `(cx, cy)`, the viewer draws the image at logical size `(width / scale, height / scale)` and places its top-left at `(cx - hot_x / scale, cy - hot_y / scale)`. For example, a 32 × 32 PNG with hotspot `(8, 4)` at scale 2 draws at 16 × 16 logical units, with its top-left 4 logical units left and 2 above the cursor position.
+
 ### 4.4 Clipboard
 
 On `vroom.graphical.control`: `0x20` CLIPBOARD_OFFER, `{id, types}`, and `0x21` CLIPBOARD_GET, `{id, type}`, answered by `0x22` CLIPBOARD_DATA, `{id, type, data}`, sent in either direction. Only offers travel eagerly, so large content moves only on demand, and a client can decide whether it wants the content at all. A client MUST opt in, and a host SHOULD let its owner disable clipboard sync.
