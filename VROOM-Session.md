@@ -25,7 +25,7 @@ VROOM runs on [xumux](https://xumux.org) 0.3 and sits at its application layer, 
 
 The client opens `vroom.session` in HELLO: reliable, ordered, profile `vroom-session/1`. Everything else opens after SESSION_WELCOME.
 
-Structured messages use CBOR by default and JSON where negotiated. SESSION_HELLO and SESSION_WELCOME are always JSON. Hot-path messages are binary structs, defined by the type that uses them. All binary integers are big-endian.
+Structured messages use CBOR by default and JSON where negotiated. SESSION_HELLO and SESSION_WELCOME are always JSON. For compatibility with existing senders, SURFACES may also use JSON even when the session uses CBOR. Receivers MUST accept either encoding for SURFACES on a CBOR session. Hot-path messages are binary structs, defined by the type that uses them. All binary integers are big-endian.
 
 **Implementation note:** these encodings are **channel codecs**, decoded after xumux demux, never in the mux framer. See [I/O stack](./docs/io-stack.md).
 
@@ -37,7 +37,7 @@ Structured messages use CBOR by default and JSON where negotiated. SESSION_HELLO
 |---|---|---|---|
 | `0x01` | SESSION_HELLO | C→S | Version, encodings, client identity |
 | `0x02` | SESSION_WELCOME | S→C | Selected encoding, offered types, surfaces |
-| `0x03` | SURFACES | S→C | The surfaces changed |
+| `0x03` | SURFACES | S→C | Complete replacement list of the client's surfaces |
 | `0x10` | LEASE_REQUEST | C→S | Ask to act on surfaces, or renew a lease |
 | `0x11` | LEASE_RELEASE | C→S | Give a lease up |
 | `0x12` | LEASE_STATE | S→C | Who holds what, sent on every change |
@@ -103,6 +103,10 @@ A **surface** is something that can be observed and acted on. Its ID is a string
 **Coordinates are logical and scoped to a surface**, with the origin at its top-left. A logical unit is a macOS point, a Windows DIP, a Wayland logical pixel or a CSS pixel. Every coordinate names its surface, so multiple monitors and HiDPI are never ambiguous.
 
 Graphical surfaces may separately report optional [desktop placement](./VROOM-Graphical.md#21-surface-placement) as `position`. That metadata does not change their surface-local coordinates.
+
+Graphical windows may report [temporary unavailability](./VROOM-Graphical.md#22-window-availability) while retaining their surface identity.
+
+SURFACES has the shape `{"surfaces": [...]}` in either encoding and replaces the entire surface list from SESSION_WELCOME or the preceding SURFACES message. A surface ID omitted from that list is no longer listed for this client.
 
 Every image a host returns reports how it maps to its surface: `origin` in logical units, and `scale` in image pixels per logical unit. A client computes `logical = origin + image_pixel / scale`. Clients MUST NOT assume an image is 1:1 with its surface.
 
