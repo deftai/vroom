@@ -71,13 +71,15 @@ A relay MUST preserve that separation: its native desktop and different upstream
 
 ### 2.2 Window availability
 
-A host MAY report a temporarily unavailable window in `surfaces` (in SESSION_WELCOME and SURFACES) with `available: false`. This means the host knows the window still exists and the client may know about it, but the host cannot capture it or accept input for it. A minimized window is one example. An omitted `available` has the same meaning as `true`.
+A host MAY report a temporarily unavailable window in `surfaces` (in SESSION_WELCOME and SURFACES) with `available: false`. The client has permission to see the entry, but the host cannot capture the window or accept input for it. A minimized window is one example. A host may also retain a previously listed window as unavailable when it temporarily cannot tell whether the window closed. An omitted `available` has the same meaning as `true`.
 
 A host that reports this state keeps the window in the list with the same `id` and `num` through the transition. It may retain the last reported `bounds` and `scale` while the window is unavailable. It MUST omit `position` while unavailable, so the old rectangle does not establish display lease coverage. It sends SURFACES when availability changes. On return it reports current geometry. If the window closes, or the client loses permission to see its entry, the host removes it from the client's list and sends SURFACES, including when that window was already unavailable.
 
 Becoming unavailable does not end or extend a lease directly covering that window, or remove its grants or joiners. The usual expiry and revocation rules still apply. Display leases cover the window again only if its current placement qualifies when it returns.
 
-While the window is unavailable, the host MUST stop delivering capture data, hide its cursor, and release held input for it. Requests for capture or actions on that window are refused with `4603 NOT_PERMITTED` while unavailable. The host MUST discard input sent while unavailable. A video stream may close during the transition. Once the window is available, a viewer can start a new stream if needed and must use fresh frames and current geometry.
+When the window becomes unavailable, the host MUST stop its capture streams, hide its cursor, and release held input for it. Requests for capture or actions on that window are refused with `4603 NOT_PERMITTED` while unavailable. A host MUST discard live input it receives for the unavailable window, and a client or relay MUST NOT queue such input to replay on return.
+
+On receiving the unavailable state, a viewer or relay MUST discard cached frames and cursor positions for that window and ignore late data from the stopped streams. When the window returns, a viewer that wants video starts a new stream and uses its current geometry.
 
 A relay preserves its own pane and surface identity while the upstream entry is present with `available: false`. It applies the same rules to its local entry and leases, and does not send capture requests or forward input for the pane until the window returns. It removes the local route and its pane when a subsequent authoritative surface list omits the upstream entry. A host that does not report this optional state gives the relay no way to distinguish hiding from closure when an entry disappears.
 
