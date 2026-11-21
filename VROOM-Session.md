@@ -25,7 +25,7 @@ VROOM runs on [xumux](https://xumux.org) 0.3 and sits at its application layer, 
 
 The client opens `vroom.session` in HELLO: reliable, ordered, profile `vroom-session/1`. Everything else opens after SESSION_WELCOME.
 
-Structured messages use CBOR by default and JSON where negotiated. SESSION_HELLO and SESSION_WELCOME are always JSON. Hot-path messages are binary structs, defined by the type that uses them. All binary integers are big-endian.
+Structured messages use CBOR by default and JSON where negotiated. SESSION_HELLO and SESSION_WELCOME are always JSON. For compatibility with existing senders, SURFACES may also use JSON even when the session uses CBOR. Receivers MUST accept either encoding for SURFACES on a CBOR session. Hot-path messages are binary structs, defined by the type that uses them. All binary integers are big-endian.
 
 **Implementation note:** these encodings are **channel codecs**, decoded after xumux demux, never in the mux framer. See [I/O stack](./docs/io-stack.md).
 
@@ -106,7 +106,7 @@ Graphical surfaces may separately report optional [desktop placement](./VROOM-Gr
 
 Graphical windows may report [temporary unavailability](./VROOM-Graphical.md#22-window-availability) while retaining their surface identity.
 
-SURFACES has a JSON body `{"surfaces": [...]}` and replaces the entire surface list from SESSION_WELCOME or the preceding SURFACES message. A surface ID omitted from that list is no longer listed for this client.
+SURFACES has the shape `{"surfaces": [...]}` in either encoding and replaces the entire surface list from SESSION_WELCOME or the preceding SURFACES message. A surface ID omitted from that list is no longer listed for this client.
 
 Every image a host returns reports how it maps to its surface: `origin` in logical units, and `scale` in image pixels per logical unit. A client computes `logical = origin + image_pixel / scale`. Clients MUST NOT assume an image is 1:1 with its surface.
 
