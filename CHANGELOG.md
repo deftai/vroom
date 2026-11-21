@@ -8,6 +8,7 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 ## [Unreleased]
 
 ### Added
+- VROOM-Graphical §2.2: optional `available: false` for temporarily unavailable windows, so a relay can preserve their pane identity and leases
 - VROOM-Graphical: optional `position` metadata for display and window placement, with unknown placement preserved and display/window lease coverage restricted to a common originating desktop
 - VROOM-Session spec: the shared base (control lease, revisions and guards, settling, act result, surfaces and coordinates, error codes)
 - VROOM-Browsable spec: browsers as a fourth type (tabs, page tree, navigation, network and console events, storage, dialogs, tab video)

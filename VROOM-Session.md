@@ -104,6 +104,8 @@ A **surface** is something that can be observed and acted on. Its ID is a string
 
 Graphical surfaces may separately report optional [desktop placement](./VROOM-Graphical.md#21-surface-placement) as `position`. That metadata does not change their surface-local coordinates.
 
+Graphical windows may report [temporary unavailability](./VROOM-Graphical.md#22-window-availability) while retaining their surface identity.
+
 Every image a host returns reports how it maps to its surface: `origin` in logical units, and `scale` in image pixels per logical unit. A client computes `logical = origin + image_pixel / scale`. Clients MUST NOT assume an image is 1:1 with its surface.
 
 ---
